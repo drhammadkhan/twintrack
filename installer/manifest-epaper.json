@@ -1,0 +1,30 @@
+{
+  "name": "TwinTrack E-Paper",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 0,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "improv": false,
+      "parts": [
+        {
+          "path": "firmware/epaper-bootloader.bin",
+          "offset": 4096
+        },
+        {
+          "path": "firmware/epaper-partitions.bin",
+          "offset": 32768
+        },
+        {
+          "path": "firmware/boot-app0.bin",
+          "offset": 57344
+        },
+        {
+          "path": "firmware/twintrack-epaper-app.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}

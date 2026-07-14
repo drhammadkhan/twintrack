@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#061827">
   <title>Install TwinTrack</title>
-  <meta name="description" content="Install TwinTrack firmware on the Spotpear ESP32-C3 1.44-inch Mini TV from a web browser.">
+  <meta name="description" content="Install TwinTrack firmware on a supported ESP32 departure-board display from a web browser.">
   <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
     :root {
@@ -108,7 +108,7 @@
 
     .firmware-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 18px;
       margin-top: 20px;
     }
@@ -159,6 +159,8 @@
 
     .classic button { background: var(--green); }
     .classic button:hover { background: #91f7bc; }
+    .epaper button { background: var(--amber); }
+    .epaper button:hover { background: #ffe08a; }
 
     .unsupported {
       display: block;
@@ -203,27 +205,27 @@
       </div>
       <div>
         <h1>Install TwinTrack</h1>
-        <p>Put a live departure board onto a new Spotpear ESP32-C3 Mini TV directly from your browser.</p>
+        <p>Put a live departure board onto a supported ESP32 display directly from your browser.</p>
       </div>
     </header>
 
     <section>
       <h2>Check the hardware</h2>
       <div class="compatibility">
-        <p><strong>Only continue with the Spotpear ESP32-C3 1.44-inch Mini TV:</strong> ESP32-C3, 4 MB flash, 128 × 128 ST7735 display.</p>
-        <p>Firmware for another ESP32 board may install successfully but leave its display and buttons unusable until the correct image is restored.</p>
+        <p><strong>Choose the exact hardware below:</strong> either the Spotpear ESP32-C3 1.44-inch Mini TV, or an ESP32-WROOM-32D wired to a black/white/red WeAct 2.9-inch 296 × 128 SSD1680 e-paper module.</p>
+        <p>Firmware for the wrong target may install successfully but leave its display unusable until the correct image is restored.</p>
       </div>
     </section>
 
     <section>
-      <h2>Choose the display edition</h2>
-      <p>Both editions provide the same departures, first-boot Wi-Fi setup, fallback access point, buttons, station web UI, and <code>twintrack.local</code> address.</p>
+      <h2>Choose the hardware and display edition</h2>
+      <p>All editions provide the same departures, first-boot Wi-Fi setup, fallback access point, and station web UI. The Mini TV uses <code>twintrack.local</code>; the e-paper build uses <code>twintrack-paper.local</code>.</p>
 
       <div class="firmware-grid">
         <article class="firmware-card recommended">
           <span class="badge">Recommended</span>
-          <h3>LVGL edition</h3>
-          <p>Modern typography, carefully spaced departure cards, status pills, and the richer visual design currently used on the reference device.</p>
+          <h3>Mini TV — LVGL</h3>
+          <p>The richer Spotpear ESP32-C3 layout, with modern typography, carefully spaced departure cards, and status pills.</p>
           <div class="installer">
             <esp-web-install-button manifest="manifest-lvgl.json">
               <button slot="activate" type="button">Install LVGL</button>
@@ -235,11 +237,24 @@
 
         <article class="firmware-card classic">
           <span class="badge">Lightweight</span>
-          <h3>Classic edition</h3>
-          <p>Direct TFT_eSPI rendering with the same features and a smaller firmware image. Choose this for the lean original display style.</p>
+          <h3>Mini TV — Classic</h3>
+          <p>Direct TFT_eSPI rendering for the Spotpear ESP32-C3, with the same features and a smaller firmware image.</p>
           <div class="installer">
             <esp-web-install-button manifest="manifest-classic.json">
               <button slot="activate" type="button">Install Classic</button>
+              <span slot="unsupported" class="unsupported">Open this page in Chrome or Edge on a computer with Web Serial support.</span>
+              <span slot="not-allowed" class="unsupported">Serial access was blocked. Reload the page and allow access when prompted.</span>
+            </esp-web-install-button>
+          </div>
+        </article>
+
+        <article class="firmware-card epaper">
+          <span class="badge">2.9-inch e-paper</span>
+          <h3>ESP32-WROOM edition</h3>
+          <p>A two-row black/white/red station board for the WeAct SSD1680 display, with large times, full destinations, red countdown states, and web-based route selection.</p>
+          <div class="installer">
+            <esp-web-install-button manifest="manifest-epaper.json">
+              <button slot="activate" type="button">Install E-Paper</button>
               <span slot="unsupported" class="unsupported">Open this page in Chrome or Edge on a computer with Web Serial support.</span>
               <span slot="not-allowed" class="unsupported">Serial access was blocked. Reload the page and allow access when prompted.</span>
             </esp-web-install-button>
@@ -253,7 +268,7 @@
       <ol>
         <li>Use <strong>Chrome or Edge</strong> on a Windows, macOS, or Linux computer.</li>
         <li>Connect the device directly with a USB data cable and close any serial monitor.</li>
-        <li>Choose an edition, select the ESP32-C3 serial device, and confirm installation.</li>
+        <li>Choose the matching hardware edition, select its serial device, and confirm installation.</li>
         <li>Keep the cable connected until installation reaches 100% and TwinTrack restarts.</li>
       </ol>
       <p><strong>Existing device?</strong> The installer can preserve its saved Wi-Fi and train settings. A full-device erase returns it to first-boot setup.</p>
@@ -265,18 +280,20 @@
         <li>Read the temporary network name and password shown on the TwinTrack display.</li>
         <li>Join the displayed <strong>TwinTrack-XXXX</strong> network.</li>
         <li>Open the captive portal or browse to <a href="http://192.168.4.1">192.168.4.1</a>.</li>
-        <li>Save the home Wi-Fi details, then open <a href="http://twintrack.local">twintrack.local</a> to choose stations.</li>
+        <li>Save the home Wi-Fi details, then open the <code>.local</code> address shown on the display to choose stations.</li>
       </ol>
     </section>
 
     <section>
       <h2>Manual recovery</h2>
-      <p>Each download is a merged ESP32-C3 image for offset <code>0x0</code>. Use these if browser installation is unavailable.</p>
+      <p>Each download is a merged image for offset <code>0x0</code>. Use these if browser installation is unavailable.</p>
       <div class="downloads">
         <a href="firmware/twintrack-lvgl-esp32c3.bin" download>LVGL firmware</a>
         <a href="firmware/twintrack-lvgl-esp32c3.bin.sha256" download>LVGL checksum</a>
         <a href="firmware/twintrack-classic-esp32c3.bin" download>Classic firmware</a>
         <a href="firmware/twintrack-classic-esp32c3.bin.sha256" download>Classic checksum</a>
+        <a href="firmware/twintrack-epaper-esp32.bin" download>E-paper firmware</a>
+        <a href="firmware/twintrack-epaper-esp32.bin.sha256" download>E-paper checksum</a>
         <a href="FLASHING.txt" download>Manual flashing guide</a>
       </div>
     </section>

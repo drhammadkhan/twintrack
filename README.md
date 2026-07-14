@@ -1,9 +1,11 @@
 # TwinTrack
 
-TwinTrack is a compact live departure board for the Spotpear ESP32C3-1.44. It
-ships with Malden Manor (`MAL`) and Tolworth (`TOL`) as its origin stations,
-filtered toward London Waterloo (`WAT`) or Chessington South (`CSS`). All four
-locations can be changed from the web UI without rebuilding the firmware.
+TwinTrack is a compact live departure board for the Spotpear ESP32C3-1.44 and
+for an ESP32-WROOM-32D connected to a black/white/red WeAct 2.9-inch e-paper
+display. It ships with Malden Manor (`MAL`) and Tolworth (`TOL`) as its origin
+stations, filtered toward London Waterloo (`WAT`) or Chessington South (`CSS`).
+All four locations can be changed from the web UI without rebuilding the
+firmware.
 
 ## Choose a display edition
 
@@ -15,6 +17,7 @@ in how the 128 x 128 display is rendered.
 | --- | --- | --- | --- |
 | Classic | `twintrack/twintrack.ino` | TFT_eSPI | Lean, direct rendering |
 | LVGL | `twintrack-lvgl/twintrack-lvgl.ino` | LVGL 8.3.7 over TFT_eSPI | Styled panels, modern typography, pills and richer status hierarchy |
+| E-Paper | `twintrack-epaper/twintrack-epaper.ino` | GxEPD2 1.6.9 | Two-row station-board layout with large times and red urgency blocks |
 
 Compile and upload either sketch. Both use the same `twintrack` NVS namespace,
 so switching editions does not erase saved Wi-Fi or train settings unless the
@@ -23,9 +26,10 @@ device flash is explicitly erased.
 ## Browser installer
 
 Open [drhammadkhan.github.io/twintrack](https://drhammadkhan.github.io/twintrack/)
-in Chrome or Edge to install either display edition over USB. The installer is
-intended for the Spotpear ESP32-C3 1.44-inch Mini TV and offers merged images,
-checksums, and manual recovery instructions as well as browser flashing.
+in Chrome or Edge to install any display edition over USB. The installer has
+separate hardware choices for the Spotpear ESP32-C3 Mini TV and the
+ESP32-WROOM/WeAct e-paper build, plus merged images, checksums, and manual
+recovery instructions.
 
 GitHub Actions rebuilds both sketches from source and republishes the installer
 whenever the firmware, display configuration, installer, or build workflow
@@ -38,6 +42,13 @@ changes. Firmware files are generated in CI and are not stored in Git history.
 - `B2` / GPIO 10: refresh immediately
 
 The display refreshes automatically every 30 seconds.
+
+The e-paper target has no physical buttons. Its displayed origin and
+destination are selected in the web UI. Live data is checked every minute, but
+the slower three-colour panel refreshes immediately only for changed services,
+platforms, delays, cancellations, or settings. Otherwise it refreshes every
+five minutes to update the clock and countdowns while limiting distracting
+full-screen flashes.
 
 The two-line header shows the full origin and destination names, a clean
 connection-state label, and the current Europe/London time synchronised over
@@ -58,6 +69,11 @@ and refresh the display immediately.
 The settings page has no user authentication and is intended for a trusted
 home network. Anyone able to reach the device on that network can change the
 displayed route configuration.
+
+The e-paper target uses `http://twintrack-paper.local/` to avoid an mDNS name
+collision when both devices are running. Its web UI also selects which of the
+two saved origins and destinations is currently shown and provides a Wi-Fi
+reset action.
 
 ## Wi-Fi setup
 
@@ -100,6 +116,26 @@ Copy `config/TFT_eSPI_User_Setup.h` over the installed TFT_eSPI library's
 installed `lvgl` library directory, as required by LVGL's Arduino integration.
 Then compile either the `twintrack` or `twintrack-lvgl` sketch directory.
 Generated build artifacts are ignored and should not be committed.
+
+### ESP32-WROOM e-paper build
+
+Build `twintrack-epaper/twintrack-epaper.ino` for `ESP32 Dev Module` with a
+4 MB flash, DIO mode, Huge APP partition, ArduinoJson 6.21.2, and GxEPD2 1.6.9.
+Wire the black/white/red WeAct 2.9-inch SSD1680 module as follows:
+
+| E-paper pin | ESP32-WROOM-32D |
+| --- | --- |
+| VCC | 3.3 V |
+| GND | GND |
+| SDA / MOSI | GPIO 23 |
+| SCL / SCK | GPIO 18 |
+| CS | GPIO 5 |
+| D/C | GPIO 17 |
+| RES | GPIO 4 |
+| BUSY | GPIO 16 |
+
+The panel is configured as `GxEPD2_290_C90c` (SSD1680, 296 × 128) in landscape
+orientation. The firmware deliberately uses 3.3 V power and logic.
 
 ## Data source
 

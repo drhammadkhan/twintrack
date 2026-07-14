@@ -2,8 +2,12 @@ TWINTRACK - MANUAL FIRMWARE INSTALLATION
 
 Supported hardware
 ------------------
-Spotpear ESP32-C3 1.44-inch Mini TV with 4 MB flash and a 128 x 128 ST7735
-display. Do not install these images on another board.
+1. Spotpear ESP32-C3 1.44-inch Mini TV with 4 MB flash and a 128 x 128
+   ST7735 display.
+2. ESP32-WROOM-32D with 4 MB flash and a black/white/red WeAct 2.9-inch
+   296 x 128 SSD1680 e-paper module.
+
+Choose the image for the exact hardware. Do not cross-flash the two targets.
 
 The browser installer is the recommended method:
 https://drhammadkhan.github.io/twintrack/
@@ -12,9 +16,10 @@ Choose an edition
 -----------------
 twintrack-lvgl-esp32c3.bin    LVGL display edition
 twintrack-classic-esp32c3.bin Classic TFT_eSPI display edition
+twintrack-epaper-esp32.bin    ESP32-WROOM / WeAct e-paper edition
 
-Both editions provide the same networking, provisioning, train feed, buttons,
-station settings, and web UI.
+All editions provide the same networking, provisioning, train feed, station
+settings, and web UI. The Mini TV editions also provide physical buttons.
 
 Manual installation with esptool
 --------------------------------
@@ -25,10 +30,11 @@ Manual installation with esptool
 
 3. Connect the board with a USB data cable.
 4. Find its serial port.
-5. Replace FIRMWARE.bin with the chosen merged image and run:
+5. Replace CHIP with esp32c3 for the Mini TV or esp32 for the e-paper build.
+6. Replace FIRMWARE.bin with the matching merged image and run:
 
-   python -m esptool --chip esp32c3 --port YOUR_SERIAL_PORT erase_flash
-   python -m esptool --chip esp32c3 --port YOUR_SERIAL_PORT --baud 460800 write_flash 0x0 FIRMWARE.bin
+   python -m esptool --chip CHIP --port YOUR_SERIAL_PORT erase_flash
+   python -m esptool --chip CHIP --port YOUR_SERIAL_PORT --baud 115200 write_flash 0x0 FIRMWARE.bin
 
 On macOS, a port normally looks like /dev/cu.usbmodemXXXX.
 On Windows, it normally looks like COM3 or another COM number.
@@ -42,7 +48,9 @@ First boot
 2. Join the TwinTrack-XXXX network.
 3. Open the captive portal or http://192.168.4.1/.
 4. Save the home Wi-Fi credentials.
-5. Open http://twintrack.local/ to configure the station CRS codes.
+5. Open http://twintrack.local/ for the Mini TV or
+   http://twintrack-paper.local/ for the e-paper build to configure the
+   station CRS codes.
 
 The erase_flash command removes saved Wi-Fi and train settings. Writing a new
 image without erasing normally preserves the device's NVS settings.
