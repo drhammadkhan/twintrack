@@ -217,7 +217,7 @@
       <div class="compatibility">
         <p><strong>Three boards are supported, each with its own firmware:</strong></p>
         <p><strong>Spotpear ESP32-C3 1.44-inch Mini TV</strong> — ESP32-C3, 4 MB flash, 128 × 128 ST7735 display: choose the LVGL or Classic edition.</p>
-        <p><strong>Cheap Yellow Display (ESP32-2432S028R)</strong> — ESP32, 4 MB flash, 2.8-inch 320 × 240 ILI9341 touchscreen: choose the CYD edition.</p>
+        <p><strong>Cheap Yellow Display (ESP32-2432S028R)</strong> — ESP32, 4 MB flash, 2.8-inch 320 × 240 ILI9341 touchscreen: choose the CYD or CYD Matrix edition.</p>
         <p><strong>ESP32-WROOM-32D e-paper build</strong> — wired to a black/white/red WeAct 2.9-inch 296 × 128 SSD1680 e-paper module: choose the E-Paper edition.</p>
         <p>Firmware for the wrong board may install successfully but leave its display and controls unusable until the correct image is restored.</p>
       </div>
@@ -261,6 +261,19 @@
           <div class="installer">
             <esp-web-install-button manifest="manifest-cyd.json">
               <button slot="activate" type="button">Install CYD</button>
+              <span slot="unsupported" class="unsupported">Open this page in Chrome or Edge on a computer with Web Serial support.</span>
+              <span slot="not-allowed" class="unsupported">Serial access was blocked. Reload the page and allow access when prompted.</span>
+            </esp-web-install-button>
+          </div>
+        </article>
+
+        <article class="firmware-card cyd">
+          <span class="badge">Cheap Yellow Display</span>
+          <h3>CYD Matrix edition</h3>
+          <p>A station-style amber dot-matrix board for the same ESP32-2432S028R touchscreen: ordinal service rows, a scrolling calling-at line, and a large live clock.</p>
+          <div class="installer">
+            <esp-web-install-button manifest="manifest-cyd-matrix.json">
+              <button slot="activate" type="button">Install CYD Matrix</button>
               <span slot="unsupported" class="unsupported">Open this page in Chrome or Edge on a computer with Web Serial support.</span>
               <span slot="not-allowed" class="unsupported">Serial access was blocked. Reload the page and allow access when prompted.</span>
             </esp-web-install-button>
@@ -313,6 +326,8 @@
         <a href="firmware/twintrack-classic-esp32c3.bin.sha256" download>Classic checksum</a>
         <a href="firmware/twintrack-cyd-esp32.bin" download>CYD firmware</a>
         <a href="firmware/twintrack-cyd-esp32.bin.sha256" download>CYD checksum</a>
+        <a href="firmware/twintrack-cyd-matrix-esp32.bin" download>CYD Matrix firmware</a>
+        <a href="firmware/twintrack-cyd-matrix-esp32.bin.sha256" download>CYD Matrix checksum</a>
         <a href="firmware/twintrack-epaper-esp32.bin" download>E-paper firmware</a>
         <a href="firmware/twintrack-epaper-esp32.bin.sha256" download>E-paper checksum</a>
         <a href="FLASHING.txt" download>Manual flashing guide</a>
