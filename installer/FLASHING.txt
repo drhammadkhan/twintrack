@@ -4,22 +4,26 @@ Supported hardware
 ------------------
 1. Spotpear ESP32-C3 1.44-inch Mini TV with 4 MB flash and a 128 x 128
    ST7735 display.
-2. ESP32-WROOM-32D with 4 MB flash and a black/white/red WeAct 2.9-inch
+2. Cheap Yellow Display (ESP32-2432S028R) with 4 MB flash and a 2.8-inch
+   320 x 240 ILI9341 touchscreen.
+3. ESP32-WROOM-32D with 4 MB flash and a black/white/red WeAct 2.9-inch
    296 x 128 SSD1680 e-paper module.
 
-Choose the image for the exact hardware. Do not cross-flash the two targets.
+Choose the image for the exact hardware. Do not cross-flash the targets.
 
 The browser installer is the recommended method:
 https://drhammadkhan.github.io/twintrack/
 
 Choose an edition
 -----------------
-twintrack-lvgl-esp32c3.bin    LVGL display edition
-twintrack-classic-esp32c3.bin Classic TFT_eSPI display edition
+twintrack-lvgl-esp32c3.bin    LVGL display edition (Spotpear ESP32-C3)
+twintrack-classic-esp32c3.bin Classic TFT_eSPI display edition (Spotpear ESP32-C3)
+twintrack-cyd-esp32.bin       CYD touchscreen edition (ESP32-2432S028R)
 twintrack-epaper-esp32.bin    ESP32-WROOM / WeAct e-paper edition
 
 All editions provide the same networking, provisioning, train feed, station
-settings, and web UI. The Mini TV editions also provide physical buttons.
+settings, and web UI. The Mini TV editions use the three hardware buttons;
+the CYD edition uses touch zones and the BOOT button.
 
 Manual installation with esptool
 --------------------------------
@@ -30,7 +34,8 @@ Manual installation with esptool
 
 3. Connect the board with a USB data cable.
 4. Find its serial port.
-5. Replace CHIP with esp32c3 for the Mini TV or esp32 for the e-paper build.
+5. Replace CHIP with esp32c3 for the Mini TV, or esp32 for the CYD and
+   e-paper builds.
 6. Replace FIRMWARE.bin with the matching merged image and run:
 
    python -m esptool --chip CHIP --port YOUR_SERIAL_PORT erase_flash
@@ -48,9 +53,12 @@ First boot
 2. Join the TwinTrack-XXXX network.
 3. Open the captive portal or http://192.168.4.1/.
 4. Save the home Wi-Fi credentials.
-5. Open http://twintrack.local/ for the Mini TV or
+5. Open http://twintrack.local/ for the Mini TV and CYD builds, or
    http://twintrack-paper.local/ for the e-paper build to configure the
    station CRS codes.
+
+On the CYD edition, hold the BOOT button while powering on to erase saved
+Wi-Fi (the Spotpear editions use B2 for this).
 
 The erase_flash command removes saved Wi-Fi and train settings. Writing a new
 image without erasing normally preserves the device's NVS settings.
