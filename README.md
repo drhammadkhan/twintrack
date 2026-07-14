@@ -1,45 +1,54 @@
 # TwinTrack
 
-TwinTrack is a compact live departure board for the Spotpear ESP32C3-1.44 and
-for an ESP32-WROOM-32D connected to a black/white/red WeAct 2.9-inch e-paper
-display. It ships with Malden Manor (`MAL`) and Tolworth (`TOL`) as its origin
-stations, filtered toward London Waterloo (`WAT`) or Chessington South (`CSS`).
-All four locations can be changed from the web UI without rebuilding the
-firmware.
+TwinTrack is a compact live departure board for the Spotpear ESP32C3-1.44, the
+"Cheap Yellow Display" (ESP32-2432S028R), and an ESP32-WROOM-32D connected to a
+black/white/red WeAct 2.9-inch e-paper display. It ships with Malden Manor
+(`MAL`) and Tolworth (`TOL`) as its origin stations, filtered toward London
+Waterloo (`WAT`) or Chessington South (`CSS`). All four locations can be
+changed from the web UI without rebuilding the firmware.
 
 ## Choose a display edition
 
-Both editions have the same train feed, buttons, Wi-Fi provisioning, fallback
-behaviour, web UI, station settings, NTP clock, and NVS storage. They differ only
-in how the 128 x 128 display is rendered.
+All editions have the same train feed, Wi-Fi provisioning, fallback behaviour,
+web UI, station settings, NTP clock, and NVS storage. They differ in the board
+they target and how the display is rendered.
 
-| Edition | Sketch | Graphics stack | Character |
-| --- | --- | --- | --- |
-| Classic | `twintrack/twintrack.ino` | TFT_eSPI | Lean, direct rendering |
-| LVGL | `twintrack-lvgl/twintrack-lvgl.ino` | LVGL 8.3.7 over TFT_eSPI | Styled panels, modern typography, pills and richer status hierarchy |
-| E-Paper | `twintrack-epaper/twintrack-epaper.ino` | GxEPD2 1.6.9 | Two-row station-board layout with large times and red urgency blocks |
+| Edition | Board | Sketch | Graphics stack | Character |
+| --- | --- | --- | --- | --- |
+| Classic | Spotpear ESP32-C3 1.44" (128 x 128) | `twintrack/twintrack.ino` | TFT_eSPI | Lean, direct rendering |
+| LVGL | Spotpear ESP32-C3 1.44" (128 x 128) | `twintrack-lvgl/twintrack-lvgl.ino` | LVGL 8.3.7 over TFT_eSPI | Styled panels, modern typography, pills and richer status hierarchy |
+| CYD | ESP32-2432S028R 2.8" touchscreen (320 x 240) | `twintrack-cyd/twintrack-cyd.ino` | TFT_eSPI + XPT2046 touch | Four-row landscape board with per-service destinations, controlled by touch zones |
+| E-Paper | ESP32-WROOM-32D + WeAct 2.9" (296 x 128) | `twintrack-epaper/twintrack-epaper.ino` | GxEPD2 1.6.9 | Two-row station-board layout with large times and red urgency blocks |
 
-Compile and upload either sketch. Both use the same `twintrack` NVS namespace,
-so switching editions does not erase saved Wi-Fi or train settings unless the
-device flash is explicitly erased.
+Compile and upload the sketch matching your board. All editions use the same
+`twintrack` NVS namespace, so switching editions does not erase saved Wi-Fi or
+train settings unless the device flash is explicitly erased.
 
 ## Browser installer
 
 Open [drhammadkhan.github.io/twintrack](https://drhammadkhan.github.io/twintrack/)
 in Chrome or Edge to install any display edition over USB. The installer has
-separate hardware choices for the Spotpear ESP32-C3 Mini TV and the
-ESP32-WROOM/WeAct e-paper build, plus merged images, checksums, and manual
-recovery instructions.
+separate hardware choices for the Spotpear ESP32-C3 Mini TV, the
+ESP32-2432S028R Cheap Yellow Display, and the ESP32-WROOM/WeAct e-paper build,
+plus merged images, checksums, and manual recovery instructions.
 
-GitHub Actions rebuilds both sketches from source and republishes the installer
+GitHub Actions rebuilds all sketches from source and republishes the installer
 whenever the firmware, display configuration, installer, or build workflow
 changes. Firmware files are generated in CI and are not stored in Git history.
 
 ## Controls
 
+Spotpear editions (hardware buttons):
+
 - `B0` / GPIO 9: switch station
 - `B1` / GPIO 8: switch direction
 - `B2` / GPIO 10: refresh immediately
+
+CYD edition (touch zones):
+
+- Tap the left third of the screen: switch station
+- Tap the middle third: switch direction
+- Tap the right third: refresh immediately
 
 The display refreshes automatically every 30 seconds.
 
@@ -91,7 +100,8 @@ saved network remains unavailable for one minute, TwinTrack reopens setup mode
 without deleting it. While the setup network is available, TwinTrack continues
 retrying the saved network every ten seconds. It automatically closes the setup
 network and resumes departures when the saved connection recovers. To erase the
-saved network, hold `B2` for three seconds during power-on.
+saved network, hold `B2` for three seconds during power-on (on the CYD
+edition, hold the `BOOT` button instead).
 
 NVS is local persistent storage, but it is not encrypted unless ESP32 flash
 encryption is separately enabled. Someone with physical flash access may be
@@ -99,7 +109,9 @@ able to recover its contents.
 
 ## Local build
 
-Build for `ESP32C3 Dev Module` with:
+### Spotpear Mini TV build
+
+For the Classic and LVGL editions, build for `ESP32C3 Dev Module` with:
 
 - Arduino ESP32 core 2.0.9
 - USB CDC on boot enabled
@@ -116,6 +128,27 @@ Copy `config/TFT_eSPI_User_Setup.h` over the installed TFT_eSPI library's
 installed `lvgl` library directory, as required by LVGL's Arduino integration.
 Then compile either the `twintrack` or `twintrack-lvgl` sketch directory.
 Generated build artifacts are ignored and should not be committed.
+
+### Cheap Yellow Display build
+
+For the CYD edition, build for `ESP32 Dev Module` with:
+
+- Arduino ESP32 core 2.0.9
+- 240 MHz CPU
+- 80 MHz flash frequency
+- DIO flash mode
+- Huge APP partition scheme
+- TFT_eSPI 2.5.0 using [`config/TFT_eSPI_User_Setup_CYD.h`](config/TFT_eSPI_User_Setup_CYD.h)
+- XPT2046_Touchscreen 1.4
+- ArduinoJson 6.21.2
+
+Copy `config/TFT_eSPI_User_Setup_CYD.h` over the installed TFT_eSPI library's
+`User_Setup.h` before compiling `twintrack-cyd`.
+
+The CYD edition targets the common single-USB ESP32-2432S028R. Some board
+revisions (notably dual-USB ones) ship panels that need `TFT_INVERSION_ON`,
+a different `TFT_RGB_ORDER`, or the `ST7789_DRIVER` in the TFT_eSPI setup —
+adjust `config/TFT_eSPI_User_Setup_CYD.h` if colours look wrong.
 
 ### ESP32-WROOM e-paper build
 

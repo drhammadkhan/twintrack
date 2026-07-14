@@ -12,6 +12,7 @@ on:
       - "twintrack/**"
       - "twintrack-lvgl/**"
       - "twintrack-epaper/**"
+      - "twintrack-cyd/**"
 
 permissions:
   contents: read
@@ -24,6 +25,7 @@ env:
   ESP32_INDEX_URL: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
   FQBN_C3: esp32:esp32:esp32c3:CDCOnBoot=cdc,CPUFreq=160,FlashFreq=80,FlashMode=dio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none,JTAGAdapter=default
   FQBN_EPAPER: esp32:esp32:esp32:UploadSpeed=115200,CPUFreq=240,FlashFreq=80,FlashMode=dio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,PSRAM=disabled,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default
+  FQBN_CYD: esp32:esp32:esp32:CPUFreq=240,FlashFreq=80,FlashMode=dio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none
 
 jobs:
   build:
@@ -49,7 +51,7 @@ jobs:
           arduino-cli core update-index --additional-urls "$ESP32_INDEX_URL"
           arduino-cli core install esp32:esp32@2.0.9 --additional-urls "$ESP32_INDEX_URL"
           arduino-cli lib update-index
-          arduino-cli lib install ArduinoJson@6.21.2 TFT_eSPI@2.5.0 lvgl@8.3.7 GxEPD2@1.6.9
+          arduino-cli lib install ArduinoJson@6.21.2 TFT_eSPI@2.5.0 lvgl@8.3.7 GxEPD2@1.6.9 XPT2046_Touchscreen@1.4
 
       - name: Apply display configurations
         shell: bash
@@ -66,6 +68,9 @@ jobs:
           arduino-cli compile --fqbn "$FQBN_C3" --libraries "$libraries" --build-path "$PWD/build/classic" twintrack
           arduino-cli compile --fqbn "$FQBN_C3" --libraries "$libraries" --build-path "$PWD/build/lvgl" twintrack-lvgl
           arduino-cli compile --fqbn "$FQBN_EPAPER" --libraries "$libraries" --build-path "$PWD/build/epaper" twintrack-epaper
+          # The CYD build needs its own TFT_eSPI pin configuration.
+          cp config/TFT_eSPI_User_Setup_CYD.h "$RUNNER_TEMP/Arduino/libraries/TFT_eSPI/User_Setup.h"
+          arduino-cli compile --fqbn "$FQBN_CYD" --libraries "$libraries" --build-path "$PWD/build/cyd" twintrack-cyd
 
       - name: Merge and package firmware
         shell: bash
@@ -90,47 +95,46 @@ jobs:
           fi
 
           merge_image() {
-            local build_dir="$1"
-            local sketch="$2"
-            local output="$3"
-            "${esptool_command[@]}" --chip esp32c3 merge_bin \
+            local chip="$1"
+            local bootloader_offset="$2"
+            local build_dir="$3"
+            local sketch="$4"
+            local output="$5"
+            "${esptool_command[@]}" --chip "$chip" merge_bin \
               --output "$output" \
               --flash_mode dio \
               --flash_freq 80m \
               --flash_size 4MB \
-              0x0 "$build_dir/$sketch.ino.bootloader.bin" \
+              "$bootloader_offset" "$build_dir/$sketch.ino.bootloader.bin" \
               0x8000 "$build_dir/$sketch.ino.partitions.bin" \
               0xe000 "$boot_app0" \
               0x10000 "$build_dir/$sketch.ino.bin"
           }
 
-          merge_image "$PWD/build/classic" twintrack "$package/twintrack-classic-esp32c3.bin"
-          merge_image "$PWD/build/lvgl" twintrack-lvgl "$package/twintrack-lvgl-esp32c3.bin"
-          "${esptool_command[@]}" --chip esp32 merge_bin \
-            --output "$package/twintrack-epaper-esp32.bin" \
-            --flash_mode dio \
-            --flash_freq 80m \
-            --flash_size 4MB \
-            0x1000 "$PWD/build/epaper/twintrack-epaper.ino.bootloader.bin" \
-            0x8000 "$PWD/build/epaper/twintrack-epaper.ino.partitions.bin" \
-            0xe000 "$boot_app0" \
-            0x10000 "$PWD/build/epaper/twintrack-epaper.ino.bin"
+          merge_image esp32c3 0x0 "$PWD/build/classic" twintrack "$package/twintrack-classic-esp32c3.bin"
+          merge_image esp32c3 0x0 "$PWD/build/lvgl" twintrack-lvgl "$package/twintrack-lvgl-esp32c3.bin"
+          merge_image esp32 0x1000 "$PWD/build/epaper" twintrack-epaper "$package/twintrack-epaper-esp32.bin"
+          merge_image esp32 0x1000 "$PWD/build/cyd" twintrack-cyd "$package/twintrack-cyd-esp32.bin"
           cp "$PWD/build/classic/twintrack.ino.bootloader.bin" "$package/bootloader.bin"
           cp "$PWD/build/classic/twintrack.ino.partitions.bin" "$package/partitions.bin"
+          cp "$PWD/build/epaper/twintrack-epaper.ino.bootloader.bin" "$package/epaper-bootloader.bin"
+          cp "$PWD/build/epaper/twintrack-epaper.ino.partitions.bin" "$package/epaper-partitions.bin"
+          cp "$PWD/build/cyd/twintrack-cyd.ino.bootloader.bin" "$package/bootloader-cyd.bin"
+          cp "$PWD/build/cyd/twintrack-cyd.ino.partitions.bin" "$package/partitions-cyd.bin"
           cp "$boot_app0" "$package/boot-app0.bin"
           cp "$PWD/build/classic/twintrack.ino.bin" "$package/twintrack-classic-app.bin"
           cp "$PWD/build/lvgl/twintrack-lvgl.ino.bin" "$package/twintrack-lvgl-app.bin"
-          cp "$PWD/build/epaper/twintrack-epaper.ino.bootloader.bin" "$package/epaper-bootloader.bin"
-          cp "$PWD/build/epaper/twintrack-epaper.ino.partitions.bin" "$package/epaper-partitions.bin"
           cp "$PWD/build/epaper/twintrack-epaper.ino.bin" "$package/twintrack-epaper-app.bin"
+          cp "$PWD/build/cyd/twintrack-cyd.ino.bin" "$package/twintrack-cyd-app.bin"
           (cd "$package" && sha256sum twintrack-classic-esp32c3.bin > twintrack-classic-esp32c3.bin.sha256)
           (cd "$package" && sha256sum twintrack-lvgl-esp32c3.bin > twintrack-lvgl-esp32c3.bin.sha256)
           (cd "$package" && sha256sum twintrack-epaper-esp32.bin > twintrack-epaper-esp32.bin.sha256)
+          (cd "$package" && sha256sum twintrack-cyd-esp32.bin > twintrack-cyd-esp32.bin.sha256)
           printf '%s\n' "$version" > "$package/version.txt"
-          cp installer/index.html installer/manifest-classic.json installer/manifest-lvgl.json installer/manifest-epaper.json installer/FLASHING.txt "$site/"
+          cp installer/index.html installer/manifest-classic.json installer/manifest-lvgl.json installer/manifest-epaper.json installer/manifest-cyd.json installer/FLASHING.txt "$site/"
           cp "$package"/* "$site/firmware/"
           touch "$site/.nojekyll"
-          sed -i "s/__VERSION__/$version/g" "$site/manifest-classic.json" "$site/manifest-lvgl.json" "$site/manifest-epaper.json"
+          sed -i "s/__VERSION__/$version/g" "$site/manifest-classic.json" "$site/manifest-lvgl.json" "$site/manifest-epaper.json" "$site/manifest-cyd.json"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

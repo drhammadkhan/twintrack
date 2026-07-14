@@ -162,6 +162,9 @@
     .epaper button { background: var(--amber); }
     .epaper button:hover { background: #ffe08a; }
 
+    .cyd button { background: var(--amber); }
+    .cyd button:hover { background: #ffdd85; }
+
     .unsupported {
       display: block;
       padding: 12px 14px;
@@ -212,14 +215,17 @@
     <section>
       <h2>Check the hardware</h2>
       <div class="compatibility">
-        <p><strong>Choose the exact hardware below:</strong> either the Spotpear ESP32-C3 1.44-inch Mini TV, or an ESP32-WROOM-32D wired to a black/white/red WeAct 2.9-inch 296 × 128 SSD1680 e-paper module.</p>
-        <p>Firmware for the wrong target may install successfully but leave its display unusable until the correct image is restored.</p>
+        <p><strong>Three boards are supported, each with its own firmware:</strong></p>
+        <p><strong>Spotpear ESP32-C3 1.44-inch Mini TV</strong> — ESP32-C3, 4 MB flash, 128 × 128 ST7735 display: choose the LVGL or Classic edition.</p>
+        <p><strong>Cheap Yellow Display (ESP32-2432S028R)</strong> — ESP32, 4 MB flash, 2.8-inch 320 × 240 ILI9341 touchscreen: choose the CYD edition.</p>
+        <p><strong>ESP32-WROOM-32D e-paper build</strong> — wired to a black/white/red WeAct 2.9-inch 296 × 128 SSD1680 e-paper module: choose the E-Paper edition.</p>
+        <p>Firmware for the wrong board may install successfully but leave its display and controls unusable until the correct image is restored.</p>
       </div>
     </section>
 
     <section>
       <h2>Choose the hardware and display edition</h2>
-      <p>All editions provide the same departures, first-boot Wi-Fi setup, fallback access point, and station web UI. The Mini TV uses <code>twintrack.local</code>; the e-paper build uses <code>twintrack-paper.local</code>.</p>
+      <p>All editions provide the same departures, first-boot Wi-Fi setup, fallback access point, and station web UI. The Mini TV and CYD builds use <code>twintrack.local</code>; the e-paper build uses <code>twintrack-paper.local</code>.</p>
 
       <div class="firmware-grid">
         <article class="firmware-card recommended">
@@ -248,6 +254,19 @@
           </div>
         </article>
 
+        <article class="firmware-card cyd">
+          <span class="badge">Cheap Yellow Display</span>
+          <h3>CYD edition</h3>
+          <p>For the ESP32-2432S028R 2.8-inch touchscreen. Same features with a four-row landscape board; tap the left, middle, or right of the screen to switch station, direction, or refresh.</p>
+          <div class="installer">
+            <esp-web-install-button manifest="manifest-cyd.json">
+              <button slot="activate" type="button">Install CYD</button>
+              <span slot="unsupported" class="unsupported">Open this page in Chrome or Edge on a computer with Web Serial support.</span>
+              <span slot="not-allowed" class="unsupported">Serial access was blocked. Reload the page and allow access when prompted.</span>
+            </esp-web-install-button>
+          </div>
+        </article>
+
         <article class="firmware-card epaper">
           <span class="badge">2.9-inch e-paper</span>
           <h3>ESP32-WROOM edition</h3>
@@ -268,7 +287,7 @@
       <ol>
         <li>Use <strong>Chrome or Edge</strong> on a Windows, macOS, or Linux computer.</li>
         <li>Connect the device directly with a USB data cable and close any serial monitor.</li>
-        <li>Choose the matching hardware edition, select its serial device, and confirm installation.</li>
+        <li>Choose the edition matching your board, select its serial device, and confirm installation.</li>
         <li>Keep the cable connected until installation reaches 100% and TwinTrack restarts.</li>
       </ol>
       <p><strong>Existing device?</strong> The installer can preserve its saved Wi-Fi and train settings. A full-device erase returns it to first-boot setup.</p>
@@ -292,6 +311,8 @@
         <a href="firmware/twintrack-lvgl-esp32c3.bin.sha256" download>LVGL checksum</a>
         <a href="firmware/twintrack-classic-esp32c3.bin" download>Classic firmware</a>
         <a href="firmware/twintrack-classic-esp32c3.bin.sha256" download>Classic checksum</a>
+        <a href="firmware/twintrack-cyd-esp32.bin" download>CYD firmware</a>
+        <a href="firmware/twintrack-cyd-esp32.bin.sha256" download>CYD checksum</a>
         <a href="firmware/twintrack-epaper-esp32.bin" download>E-paper firmware</a>
         <a href="firmware/twintrack-epaper-esp32.bin.sha256" download>E-paper checksum</a>
         <a href="FLASHING.txt" download>Manual flashing guide</a>
