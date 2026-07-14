@@ -20,6 +20,17 @@ Compile and upload either sketch. Both use the same `twintrack` NVS namespace,
 so switching editions does not erase saved Wi-Fi or train settings unless the
 device flash is explicitly erased.
 
+## Browser installer
+
+Open [drhammadkhan.github.io/twintrack](https://drhammadkhan.github.io/twintrack/)
+in Chrome or Edge to install either display edition over USB. The installer is
+intended for the Spotpear ESP32-C3 1.44-inch Mini TV and offers merged images,
+checksums, and manual recovery instructions as well as browser flashing.
+
+GitHub Actions rebuilds both sketches from source and republishes the installer
+whenever the firmware, display configuration, installer, or build workflow
+changes. Firmware files are generated in CI and are not stored in Git history.
+
 ## Controls
 
 - `B0` / GPIO 9: switch station

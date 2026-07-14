@@ -1,0 +1,148 @@
+name: Build and publish firmware installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/firmware-installer.yml"
+      - "config/**"
+      - "installer/**"
+      - "twintrack/**"
+      - "twintrack-lvgl/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: twintrack-firmware-pages
+  cancel-in-progress: true
+
+env:
+  ESP32_INDEX_URL: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+  FQBN: esp32:esp32:esp32c3:CDCOnBoot=cdc,CPUFreq=160,FlashFreq=80,FlashMode=dio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none,JTAGAdapter=default
+
+jobs:
+  build:
+    name: Build ESP32-C3 images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+        with:
+          version: "1.x"
+
+      - name: Install board core and libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          arduino-cli config init
+          arduino-cli config set directories.data "$RUNNER_TEMP/arduino-data"
+          arduino-cli config set directories.downloads "$RUNNER_TEMP/arduino-downloads"
+          arduino-cli config set directories.user "$RUNNER_TEMP/Arduino"
+          arduino-cli core update-index --additional-urls "$ESP32_INDEX_URL"
+          arduino-cli core install esp32:esp32@2.0.9 --additional-urls "$ESP32_INDEX_URL"
+          arduino-cli lib update-index
+          arduino-cli lib install ArduinoJson@6.21.2 TFT_eSPI@2.5.0 lvgl@8.3.7
+
+      - name: Apply display configurations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp config/TFT_eSPI_User_Setup.h "$RUNNER_TEMP/Arduino/libraries/TFT_eSPI/User_Setup.h"
+          cp config/lv_conf.h "$RUNNER_TEMP/Arduino/libraries/lv_conf.h"
+
+      - name: Compile both display editions
+        shell: bash
+        run: |
+          set -euo pipefail
+          libraries="$RUNNER_TEMP/Arduino/libraries"
+          arduino-cli compile --fqbn "$FQBN" --libraries "$libraries" --build-path "$PWD/build/classic" twintrack
+          arduino-cli compile --fqbn "$FQBN" --libraries "$libraries" --build-path "$PWD/build/lvgl" twintrack-lvgl
+
+      - name: Merge and package firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$PWD/package"
+          site="$PWD/site"
+          version="${GITHUB_SHA::7}"
+          core="$RUNNER_TEMP/arduino-data/packages/esp32/hardware/esp32/2.0.9"
+          boot_app0="$core/tools/partitions/boot_app0.bin"
+          esptool="$(find "$RUNNER_TEMP/arduino-data/packages/esp32/tools/esptool_py" -type f \( -name esptool -o -name esptool.py \) -print -quit)"
+
+          test -f "$boot_app0"
+          test -f "$esptool"
+          mkdir -p "$package" "$site/firmware"
+
+          if [[ "$esptool" == *.py ]]; then
+            esptool_command=(python "$esptool")
+          else
+            chmod +x "$esptool"
+            esptool_command=("$esptool")
+          fi
+
+          merge_image() {
+            local build_dir="$1"
+            local sketch="$2"
+            local output="$3"
+            "${esptool_command[@]}" --chip esp32c3 merge_bin \
+              --output "$output" \
+              --flash_mode dio \
+              --flash_freq 80m \
+              --flash_size 4MB \
+              0x0 "$build_dir/$sketch.ino.bootloader.bin" \
+              0x8000 "$build_dir/$sketch.ino.partitions.bin" \
+              0xe000 "$boot_app0" \
+              0x10000 "$build_dir/$sketch.ino.bin"
+          }
+
+          merge_image "$PWD/build/classic" twintrack "$package/twintrack-classic-esp32c3.bin"
+          merge_image "$PWD/build/lvgl" twintrack-lvgl "$package/twintrack-lvgl-esp32c3.bin"
+          cp "$PWD/build/classic/twintrack.ino.bootloader.bin" "$package/bootloader.bin"
+          cp "$PWD/build/classic/twintrack.ino.partitions.bin" "$package/partitions.bin"
+          cp "$boot_app0" "$package/boot-app0.bin"
+          cp "$PWD/build/classic/twintrack.ino.bin" "$package/twintrack-classic-app.bin"
+          cp "$PWD/build/lvgl/twintrack-lvgl.ino.bin" "$package/twintrack-lvgl-app.bin"
+          (cd "$package" && sha256sum twintrack-classic-esp32c3.bin > twintrack-classic-esp32c3.bin.sha256)
+          (cd "$package" && sha256sum twintrack-lvgl-esp32c3.bin > twintrack-lvgl-esp32c3.bin.sha256)
+          printf '%s\n' "$version" > "$package/version.txt"
+          cp installer/index.html installer/manifest-classic.json installer/manifest-lvgl.json installer/FLASHING.txt "$site/"
+          cp "$package"/* "$site/firmware/"
+          touch "$site/.nojekyll"
+          sed -i "s/__VERSION__/$version/g" "$site/manifest-classic.json" "$site/manifest-lvgl.json"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload downloadable firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: TwinTrack-ESP32-C3
+          path: package
+          if-no-files-found: error
+
+      - name: Upload installer site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    name: Publish browser installer
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
