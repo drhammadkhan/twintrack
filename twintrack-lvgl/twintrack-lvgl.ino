@@ -101,9 +101,10 @@ struct DebouncedButton {
 TFT_eSPI tft(128, 128);
 constexpr uint16_t kScreenWidth = 128;
 constexpr uint16_t kScreenHeight = 128;
-constexpr uint16_t kHeaderHeight = 28;
-constexpr uint16_t kFooterHeight = 16;
+constexpr uint16_t kHeaderHeight = 26;
+constexpr uint16_t kFooterHeight = 15;
 constexpr uint16_t kFooterY = kScreenHeight - kFooterHeight;
+constexpr uint16_t kDepartureRowHeight = 29;
 lv_disp_draw_buf_t lvDrawBuffer;
 lv_color_t lvPixelBuffer[kScreenWidth * 12];
 lv_disp_drv_t lvDisplayDriver;
@@ -238,26 +239,26 @@ void createChrome() {
                                lv_color_hex(0xF3F8FC), 91, 0, 33, 14,
                                LV_TEXT_ALIGN_RIGHT);
   headerDestinationLabel = makeLabel(
-      header, "", &lv_font_montserrat_12, lv_color_hex(0x54D7FF), 4, 13, 88,
-      14);
+      header, "", &lv_font_montserrat_10, lv_color_hex(0x54D7FF), 4, 14, 94,
+      12);
   headerConnectionLabel = makeLabel(
-      header, "", &lv_font_montserrat_12, lv_color_hex(0x66F2A3), 95, 13,
-      29, 14, LV_TEXT_ALIGN_RIGHT);
-  makePanel(header, 0, 26, kScreenWidth, 2, lv_color_hex(0x087CA4));
+      header, "", &lv_font_montserrat_10, lv_color_hex(0x66F2A3), 101, 14,
+      23, 12, LV_TEXT_ALIGN_RIGHT);
+  makePanel(header, 0, 24, kScreenWidth, 2, lv_color_hex(0x087CA4));
 
   lv_obj_t *footer = makePanel(screen, 0, kFooterY, kScreenWidth,
                                kFooterHeight, lv_color_hex(0x061827));
   footerButtonLabels[0] = makeLabel(
-      footer, "B0 STN", &lv_font_montserrat_12, lv_color_hex(0x8FA7BA), 0, 1,
-      42, 14, LV_TEXT_ALIGN_CENTER);
+      footer, "B0 STN", &lv_font_montserrat_10, lv_color_hex(0x8FA7BA), 0, 2,
+      42, 11, LV_TEXT_ALIGN_CENTER);
   footerButtonLabels[1] = makeLabel(
-      footer, "B1 DIR", &lv_font_montserrat_12, lv_color_hex(0x8FA7BA), 43,
-      1, 42, 14, LV_TEXT_ALIGN_CENTER);
+      footer, "B1 DIR", &lv_font_montserrat_10, lv_color_hex(0x8FA7BA), 43,
+      2, 42, 11, LV_TEXT_ALIGN_CENTER);
   footerButtonLabels[2] = makeLabel(
-      footer, "B2 REF", &lv_font_montserrat_12, lv_color_hex(0x8FA7BA), 86,
-      1, 42, 14, LV_TEXT_ALIGN_CENTER);
-  footerWebLabel = makeLabel(footer, "", &lv_font_montserrat_12,
-                             lv_color_hex(0x54D7FF), 2, 1, 124, 14,
+      footer, "B2 REF", &lv_font_montserrat_10, lv_color_hex(0x8FA7BA), 86,
+      2, 42, 11, LV_TEXT_ALIGN_CENTER);
+  footerWebLabel = makeLabel(footer, "", &lv_font_montserrat_10,
+                             lv_color_hex(0x54D7FF), 2, 2, 124, 11,
                              LV_TEXT_ALIGN_CENTER);
 }
 
@@ -296,16 +297,16 @@ uint16_t statusColour(const Departure &departure) {
 
 String shortStatus(const Departure &departure) {
   if (departure.cancelled) {
-    return "CANCELLED";
+    return "Cancelled";
   }
   if (departure.expected == "On time") {
-    return "ON TIME";
+    return "On time";
   }
   if (departure.expected == "Delayed") {
-    return "DELAYED";
+    return "Delayed";
   }
   if (departure.expected.length() == 5) {
-    return "EXP " + departure.expected;
+    return "Exp " + departure.expected;
   }
   return departure.expected.substring(0, 10);
 }
@@ -393,7 +394,7 @@ String countdownText(int minutes) {
     return "--";
   }
   if (minutes == 0) {
-    return "DUE";
+    return "Due";
   }
   if (minutes > 99) {
     return "99m+";
@@ -802,39 +803,41 @@ void drawDepartures() {
   }
 
   for (size_t i = 0; i < departureCount; ++i) {
-    const int y = kHeaderHeight + static_cast<int>(i) * 28;
+    const int y =
+        kHeaderHeight + static_cast<int>(i) * kDepartureRowHeight;
     const Departure &departure = departures[i];
     const int minutes = minutesUntilDeparture(departure);
     const uint16_t urgencyColour = countdownColour(minutes);
     const String urgencyText =
-        departure.cancelled ? "CXL" : countdownText(minutes);
+        departure.cancelled ? "Cxl" : countdownText(minutes);
     const lv_color_t urgency = colourFromRgb565(
         departure.cancelled ? TFT_RED : urgencyColour);
-    lv_obj_t *row = makePanel(lv_scr_act(), 0, y, kScreenWidth, 28,
+    lv_obj_t *row = makePanel(lv_scr_act(), 0, y, kScreenWidth,
+                              kDepartureRowHeight,
                               i % 2 == 0 ? lv_color_hex(0x071521)
                                          : lv_color_hex(0x0A1B29));
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_color(row, lv_color_hex(0x163244), 0);
-    makePanel(row, 0, 0, 3, 28, urgency);
-    makeLabel(row, departure.scheduled, &lv_font_montserrat_16,
-              lv_color_hex(0xF3F8FC), 7, 0, 58, 18);
-    makeLabel(row, urgencyText, &lv_font_montserrat_16, urgency, 67, 0, 57,
-              18, LV_TEXT_ALIGN_RIGHT);
+    makePanel(row, 0, 0, 2, kDepartureRowHeight, urgency);
+    makeLabel(row, departure.scheduled, &lv_font_montserrat_14,
+              lv_color_hex(0xF3F8FC), 9, 2, 56, 17);
+    makeLabel(row, urgencyText, &lv_font_montserrat_14, urgency, 70, 2, 53,
+              17, LV_TEXT_ALIGN_RIGHT);
 
     const uint16_t serviceColour = statusColour(departure);
     const lv_color_t service = colourFromRgb565(serviceColour);
-    makePanel(row, 7, 20, 5, 5, service, 3);
-    makeLabel(row, shortStatus(departure), &lv_font_montserrat_12, service, 16,
-              15, 82, 14);
+    makePanel(row, 9, 21, 4, 4, service, 2);
+    makeLabel(row, shortStatus(departure), &lv_font_montserrat_10, service, 18,
+              17, 78, 11);
 
     const String platform = departure.platform.length() > 0
                                 ? "P" + departure.platform
                                 : "P-";
-    lv_obj_t *platformPill = makePanel(row, 101, 15, 25, 12,
-                                       lv_color_hex(0x073C50), 6);
-    makeLabel(platformPill, platform, &lv_font_montserrat_12,
-              lv_color_hex(0xDFF8FF), 1, 0, 23, 12,
+    lv_obj_t *platformPill = makePanel(row, 103, 17, 22, 11,
+                                       lv_color_hex(0x073C50), 5);
+    makeLabel(platformPill, platform, &lv_font_montserrat_10,
+              lv_color_hex(0xDFF8FF), 1, 0, 20, 11,
               LV_TEXT_ALIGN_CENTER);
   }
 
