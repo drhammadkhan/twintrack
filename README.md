@@ -5,6 +5,21 @@ ships with Malden Manor (`MAL`) and Tolworth (`TOL`) as its origin stations,
 filtered toward London Waterloo (`WAT`) or Chessington South (`CSS`). All four
 locations can be changed from the web UI without rebuilding the firmware.
 
+## Choose a display edition
+
+Both editions have the same train feed, buttons, Wi-Fi provisioning, fallback
+behaviour, web UI, station settings, NTP clock, and NVS storage. They differ only
+in how the 128 x 128 display is rendered.
+
+| Edition | Sketch | Graphics stack | Character |
+| --- | --- | --- | --- |
+| Classic | `twintrack/twintrack.ino` | TFT_eSPI | Lean, direct rendering |
+| LVGL | `twintrack-lvgl/twintrack-lvgl.ino` | LVGL 8.3.7 over TFT_eSPI | Styled panels, modern typography, pills and richer status hierarchy |
+
+Compile and upload either sketch. Both use the same `twintrack` NVS namespace,
+so switching editions does not erase saved Wi-Fi or train settings unless the
+device flash is explicitly erased.
+
 ## Controls
 
 - `B0` / GPIO 9: switch station
@@ -67,10 +82,13 @@ Build for `ESP32C3 Dev Module` with:
 - Huge APP partition scheme
 - TFT_eSPI 2.5.0 using [`config/TFT_eSPI_User_Setup.h`](config/TFT_eSPI_User_Setup.h)
 - ArduinoJson 6.21.2
+- LVGL 8.3.7 for the LVGL edition, using [`config/lv_conf.h`](config/lv_conf.h)
 
 Copy `config/TFT_eSPI_User_Setup.h` over the installed TFT_eSPI library's
-`User_Setup.h`, then compile the `twintrack` sketch directory. Generated build
-artifacts are ignored and should not be committed.
+`User_Setup.h`. For the LVGL edition, place `config/lv_conf.h` alongside the
+installed `lvgl` library directory, as required by LVGL's Arduino integration.
+Then compile either the `twintrack` or `twintrack-lvgl` sketch directory.
+Generated build artifacts are ignored and should not be committed.
 
 ## Data source
 
