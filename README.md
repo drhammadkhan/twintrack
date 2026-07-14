@@ -18,6 +18,7 @@ they target and how the display is rendered.
 | Classic | Spotpear ESP32-C3 1.44" (128 x 128) | `twintrack/twintrack.ino` | TFT_eSPI | Lean, direct rendering |
 | LVGL | Spotpear ESP32-C3 1.44" (128 x 128) | `twintrack-lvgl/twintrack-lvgl.ino` | LVGL 8.3.7 over TFT_eSPI | Styled panels, modern typography, pills and richer status hierarchy |
 | CYD | ESP32-2432S028R 2.8" touchscreen (320 x 240) | `twintrack-cyd/twintrack-cyd.ino` | TFT_eSPI + XPT2046 touch | Four-row landscape board with per-service destinations, controlled by touch zones |
+| CYD Matrix | ESP32-2432S028R 2.8" touchscreen (320 x 240) | `twintrack-cyd-matrix/twintrack-cyd-matrix.ino` | TFT_eSPI + XPT2046 touch | Station CIS-style amber dot matrix: ordinal rows, scrolling calling-at line, large live clock |
 | E-Paper | ESP32-WROOM-32D + WeAct 2.9" (296 x 128) | `twintrack-epaper/twintrack-epaper.ino` | GxEPD2 1.6.9 | Two-row station-board layout with large times and red urgency blocks |
 
 Compile and upload the sketch matching your board. All editions use the same
@@ -44,11 +45,17 @@ Spotpear editions (hardware buttons):
 - `B1` / GPIO 8: switch direction
 - `B2` / GPIO 10: refresh immediately
 
-CYD edition (touch zones):
+CYD and CYD Matrix editions (touch zones):
 
 - Tap the left third of the screen: switch station
 - Tap the middle third: switch direction
 - Tap the right third: refresh immediately
+
+The CYD Matrix edition mimics a UK station platform display: every service
+row is amber dot-matrix text (`1st  20:45  Waterloo   On time`), the next
+service's calling points scroll beneath the top row, and a large HH:MM:SS
+clock sits at the bottom. It requests the expanded feed so calling points are
+available.
 
 The display refreshes automatically every 30 seconds.
 
@@ -131,7 +138,7 @@ Generated build artifacts are ignored and should not be committed.
 
 ### Cheap Yellow Display build
 
-For the CYD edition, build for `ESP32 Dev Module` with:
+For the CYD and CYD Matrix editions, build for `ESP32 Dev Module` with:
 
 - Arduino ESP32 core 2.0.9
 - 240 MHz CPU
@@ -143,9 +150,9 @@ For the CYD edition, build for `ESP32 Dev Module` with:
 - ArduinoJson 6.21.2
 
 Copy `config/TFT_eSPI_User_Setup_CYD.h` over the installed TFT_eSPI library's
-`User_Setup.h` before compiling `twintrack-cyd`.
+`User_Setup.h` before compiling `twintrack-cyd` or `twintrack-cyd-matrix`.
 
-The CYD edition targets the common single-USB ESP32-2432S028R. Some board
+The CYD editions target the common single-USB ESP32-2432S028R. Some board
 revisions (notably dual-USB ones) ship panels that need `TFT_INVERSION_ON`,
 a different `TFT_RGB_ORDER`, or the `ST7789_DRIVER` in the TFT_eSPI setup —
 adjust `config/TFT_eSPI_User_Setup_CYD.h` if colours look wrong.

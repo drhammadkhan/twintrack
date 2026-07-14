@@ -19,6 +19,7 @@ Choose an edition
 twintrack-lvgl-esp32c3.bin    LVGL display edition (Spotpear ESP32-C3)
 twintrack-classic-esp32c3.bin Classic TFT_eSPI display edition (Spotpear ESP32-C3)
 twintrack-cyd-esp32.bin       CYD touchscreen edition (ESP32-2432S028R)
+twintrack-cyd-matrix-esp32.bin CYD Matrix dot-matrix edition (ESP32-2432S028R)
 twintrack-epaper-esp32.bin    ESP32-WROOM / WeAct e-paper edition
 
 All editions provide the same networking, provisioning, train feed, station

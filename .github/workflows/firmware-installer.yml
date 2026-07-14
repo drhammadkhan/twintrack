@@ -13,6 +13,7 @@ on:
       - "twintrack-lvgl/**"
       - "twintrack-epaper/**"
       - "twintrack-cyd/**"
+      - "twintrack-cyd-matrix/**"
 
 permissions:
   contents: read
@@ -68,9 +69,10 @@ jobs:
           arduino-cli compile --fqbn "$FQBN_C3" --libraries "$libraries" --build-path "$PWD/build/classic" twintrack
           arduino-cli compile --fqbn "$FQBN_C3" --libraries "$libraries" --build-path "$PWD/build/lvgl" twintrack-lvgl
           arduino-cli compile --fqbn "$FQBN_EPAPER" --libraries "$libraries" --build-path "$PWD/build/epaper" twintrack-epaper
-          # The CYD build needs its own TFT_eSPI pin configuration.
+          # The CYD builds need their own TFT_eSPI pin configuration.
           cp config/TFT_eSPI_User_Setup_CYD.h "$RUNNER_TEMP/Arduino/libraries/TFT_eSPI/User_Setup.h"
           arduino-cli compile --fqbn "$FQBN_CYD" --libraries "$libraries" --build-path "$PWD/build/cyd" twintrack-cyd
+          arduino-cli compile --fqbn "$FQBN_CYD" --libraries "$libraries" --build-path "$PWD/build/cyd-matrix" twintrack-cyd-matrix
 
       - name: Merge and package firmware
         shell: bash
@@ -115,6 +117,7 @@ jobs:
           merge_image esp32c3 0x0 "$PWD/build/lvgl" twintrack-lvgl "$package/twintrack-lvgl-esp32c3.bin"
           merge_image esp32 0x1000 "$PWD/build/epaper" twintrack-epaper "$package/twintrack-epaper-esp32.bin"
           merge_image esp32 0x1000 "$PWD/build/cyd" twintrack-cyd "$package/twintrack-cyd-esp32.bin"
+          merge_image esp32 0x1000 "$PWD/build/cyd-matrix" twintrack-cyd-matrix "$package/twintrack-cyd-matrix-esp32.bin"
           cp "$PWD/build/classic/twintrack.ino.bootloader.bin" "$package/bootloader.bin"
           cp "$PWD/build/classic/twintrack.ino.partitions.bin" "$package/partitions.bin"
           cp "$PWD/build/epaper/twintrack-epaper.ino.bootloader.bin" "$package/epaper-bootloader.bin"
@@ -126,15 +129,17 @@ jobs:
           cp "$PWD/build/lvgl/twintrack-lvgl.ino.bin" "$package/twintrack-lvgl-app.bin"
           cp "$PWD/build/epaper/twintrack-epaper.ino.bin" "$package/twintrack-epaper-app.bin"
           cp "$PWD/build/cyd/twintrack-cyd.ino.bin" "$package/twintrack-cyd-app.bin"
+          cp "$PWD/build/cyd-matrix/twintrack-cyd-matrix.ino.bin" "$package/twintrack-cyd-matrix-app.bin"
           (cd "$package" && sha256sum twintrack-classic-esp32c3.bin > twintrack-classic-esp32c3.bin.sha256)
           (cd "$package" && sha256sum twintrack-lvgl-esp32c3.bin > twintrack-lvgl-esp32c3.bin.sha256)
           (cd "$package" && sha256sum twintrack-epaper-esp32.bin > twintrack-epaper-esp32.bin.sha256)
           (cd "$package" && sha256sum twintrack-cyd-esp32.bin > twintrack-cyd-esp32.bin.sha256)
+          (cd "$package" && sha256sum twintrack-cyd-matrix-esp32.bin > twintrack-cyd-matrix-esp32.bin.sha256)
           printf '%s\n' "$version" > "$package/version.txt"
-          cp installer/index.html installer/manifest-classic.json installer/manifest-lvgl.json installer/manifest-epaper.json installer/manifest-cyd.json installer/FLASHING.txt "$site/"
+          cp installer/index.html installer/manifest-classic.json installer/manifest-lvgl.json installer/manifest-epaper.json installer/manifest-cyd.json installer/manifest-cyd-matrix.json installer/FLASHING.txt "$site/"
           cp "$package"/* "$site/firmware/"
           touch "$site/.nojekyll"
-          sed -i "s/__VERSION__/$version/g" "$site/manifest-classic.json" "$site/manifest-lvgl.json" "$site/manifest-epaper.json" "$site/manifest-cyd.json"
+          sed -i "s/__VERSION__/$version/g" "$site/manifest-classic.json" "$site/manifest-lvgl.json" "$site/manifest-epaper.json" "$site/manifest-cyd.json" "$site/manifest-cyd-matrix.json"
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
