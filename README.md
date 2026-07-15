@@ -99,7 +99,8 @@ password on the display.
 
 1. Join the displayed `TwinTrack-XXXX` network using the displayed password.
 2. Open the captive portal, or browse to `http://192.168.4.1/`.
-3. Enter the home Wi-Fi name and password.
+3. Choose a nearby network from the scanned list, or enter a hidden network
+   name manually, then provide its password.
 4. TwinTrack tests the connection before saving it and restarting.
 
 Validated credentials are stored in the ESP32's local NVS preferences. If the

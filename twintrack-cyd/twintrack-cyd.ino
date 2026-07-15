@@ -178,6 +178,8 @@ String pendingWifiPassword;
 String setupApSsid;
 String setupApPassword;
 String deviceHostname;
+String wifiScanResponse;
+bool wifiScanRunning = false;
 ProvisioningState provisioningState = ProvisioningState::kIdle;
 
 void configureWebHandlers();
@@ -185,6 +187,8 @@ void startLanWebUi();
 bool initialiseDepartureFetcher();
 bool queueDepartureFetch();
 void applyCompletedDepartureFetch();
+void startWifiNetworkScan();
+void updateWifiNetworkScan();
 
 void setStatusLed(bool on) {
   // The CYD RGB LED is active low; the green channel doubles as the old
@@ -457,7 +461,7 @@ void drawCredentialSavedScreen() {
 String portalPage(const String &heading, const String &message, bool showForm,
                   bool autoRefresh) {
   String page;
-  page.reserve(2200);
+  page.reserve(5200);
   page += F("<!doctype html><html><head><meta charset='utf-8'>");
   page += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
   if (autoRefresh) {
@@ -467,23 +471,47 @@ String portalPage(const String &heading, const String &message, bool showForm,
   page += F("body{font-family:system-ui,sans-serif;background:#07111f;color:#eef6ff;");
   page += F("margin:0;padding:24px}main{max-width:420px;margin:auto;background:#10243a;");
   page += F("padding:24px;border-radius:16px}h1{color:#58d8ff;margin-top:0}");
-  page += F("label{display:block;margin-top:16px}input{box-sizing:border-box;width:100%;");
+  page += F("label{display:block;margin-top:16px}input,select{box-sizing:border-box;width:100%;");
   page += F("padding:12px;margin-top:6px;border:1px solid #54708c;border-radius:8px;");
   page += F("font-size:16px}button{width:100%;margin-top:20px;padding:13px;");
   page += F("border:0;border-radius:8px;background:#21c77a;color:#04130b;font-weight:700}");
-  page += F("small{color:#adc1d4}</style></head><body><main><h1>");
+  page += F(".secondary{background:#314b64;color:#eef6ff;margin-top:10px}");
+  page += F("small{display:block;color:#adc1d4;margin-top:10px}</style></head><body><main><h1>");
   page += heading;
   page += F("</h1><p>");
   page += message;
   page += F("</p>");
   if (showForm) {
     page += F("<form action='/save' method='post'>");
-    page += F("<label>Home Wi-Fi name<input name='ssid' maxlength='32' required ");
-    page += F("autocapitalize='none' autocomplete='off'></label>");
+    page += F("<label>Nearby networks<select id='networks' disabled>");
+    page += F("<option>Searching...</option></select></label>");
+    page += F("<button id='rescan' class='secondary' type='button'>Scan again</button>");
+    page += F("<small id='scan-status'>Searching for nearby networks...</small>");
+    page += F("<label>Network name<input id='ssid' name='ssid' maxlength='32' required ");
+    page += F("autocapitalize='none' autocomplete='off' placeholder='Or enter a hidden network'></label>");
     page += F("<label>Wi-Fi password<input name='password' type='password' ");
     page += F("maxlength='63' autocomplete='new-password'></label>");
     page += F("<button type='submit'>Connect and save</button></form>");
     page += F("<p><small>The password is tested before it is stored on the device.</small></p>");
+    page += F("<script>(()=>{const list=document.getElementById('networks'),");
+    page += F("ssid=document.getElementById('ssid'),status=document.getElementById('scan-status');");
+    page += F("const quality=r=>r>=-55?'excellent':r>=-67?'good':r>=-75?'fair':'weak';");
+    page += F("async function scan(refresh=false){status.textContent=refresh?'Scanning again...':'Searching for nearby networks...';");
+    page += F("try{const response=await fetch('/networks'+(refresh?'?refresh=1':''),{cache:'no-store'});");
+    page += F("const data=await response.json();if(data.scanning){setTimeout(()=>scan(false),1200);return;}");
+    page += F("list.innerHTML='';const networks=data.networks||[];if(!networks.length){");
+    page += F("const option=document.createElement('option');option.textContent='No networks found';");
+    page += F("option.value='';list.appendChild(option);list.disabled=true;");
+    page += F("status.textContent=data.error||'No visible networks found. Enter a network name below.';return;}");
+    page += F("for(const network of networks){const option=document.createElement('option');");
+    page += F("option.value=network.ssid;option.textContent=network.ssid+' · '+quality(network.rssi)");
+    page += F("+' · '+(network.secure?'secured':'open');list.appendChild(option);}");
+    page += F("list.disabled=false;if(!ssid.value){ssid.value=networks[0].ssid;}");
+    page += F("status.textContent=networks.length+' network'+(networks.length===1?'':'s')+' found.';");
+    page += F("}catch(error){status.textContent='Scan unavailable. Enter the network name below.';}}");
+    page += F("list.addEventListener('change',()=>{if(list.value)ssid.value=list.value;});");
+    page += F("document.getElementById('rescan').addEventListener('click',()=>scan(true));");
+    page += F("scan(false);})();</script>");
   }
   page += F("</main></body></html>");
   return page;
@@ -499,6 +527,113 @@ void sendPortalPage(const String &heading, const String &message, bool showForm,
 void redirectToPortal() {
   webServer.sendHeader("Location", "http://192.168.4.1/", true);
   webServer.send(302, "text/plain", "");
+}
+
+String jsonEscape(const String &value) {
+  String escaped;
+  escaped.reserve(value.length() + 8);
+  for (size_t i = 0; i < value.length(); ++i) {
+    const uint8_t character = static_cast<uint8_t>(value.charAt(i));
+    if (character == '"' || character == '\\') {
+      escaped += '\\';
+      escaped += static_cast<char>(character);
+    } else if (character < 0x20) {
+      char unicodeEscape[7];
+      snprintf(unicodeEscape, sizeof(unicodeEscape), "\\u%04X", character);
+      escaped += unicodeEscape;
+    } else {
+      escaped += static_cast<char>(character);
+    }
+  }
+  return escaped;
+}
+
+void cacheWifiNetworkResults(int16_t count) {
+  wifiScanResponse = F("{\"scanning\":false,\"networks\":[");
+  wifiScanResponse.reserve(2400);
+  size_t added = 0;
+  for (int16_t i = 0; i < count && added < 20; ++i) {
+    const String ssid = WiFi.SSID(i);
+    if (ssid.length() == 0) {
+      continue;
+    }
+
+    bool duplicate = false;
+    for (int16_t previous = 0; previous < i; ++previous) {
+      if (WiFi.SSID(previous) == ssid) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate) {
+      continue;
+    }
+
+    if (added > 0) {
+      wifiScanResponse += ',';
+    }
+    wifiScanResponse += F("{\"ssid\":\"");
+    wifiScanResponse += jsonEscape(ssid);
+    wifiScanResponse += F("\",\"rssi\":");
+    wifiScanResponse += WiFi.RSSI(i);
+    wifiScanResponse += F(",\"secure\":");
+    wifiScanResponse +=
+        WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? F("false") : F("true");
+    wifiScanResponse += '}';
+    ++added;
+  }
+  wifiScanResponse += F("]}");
+  Serial.printf("WIFI_SCAN_COMPLETE visible=%u\n",
+                static_cast<unsigned int>(added));
+}
+
+void startWifiNetworkScan() {
+  if (!provisioningMode ||
+      provisioningState == ProvisioningState::kTesting) {
+    return;
+  }
+
+  if (retrySavedWifiInProvisioning) {
+    WiFi.disconnect(false, false);
+    lastProvisioningWifiRetryAt = millis();
+    delay(50);
+  }
+  WiFi.scanDelete();
+  wifiScanResponse = "";
+  const int16_t scanState = WiFi.scanNetworks(true, false);
+  if (scanState == WIFI_SCAN_RUNNING) {
+    wifiScanRunning = true;
+    Serial.println("WIFI_SCAN_STARTED");
+  } else if (scanState >= 0) {
+    wifiScanRunning = false;
+    cacheWifiNetworkResults(scanState);
+    WiFi.scanDelete();
+  } else {
+    wifiScanRunning = false;
+    wifiScanResponse =
+        F("{\"scanning\":false,\"networks\":[],\"error\":\"Scan failed\"}");
+    Serial.println("WIFI_SCAN_FAILED start");
+  }
+}
+
+void updateWifiNetworkScan() {
+  if (!wifiScanRunning) {
+    return;
+  }
+
+  const int16_t scanState = WiFi.scanComplete();
+  if (scanState == WIFI_SCAN_RUNNING) {
+    return;
+  }
+  wifiScanRunning = false;
+  if (scanState >= 0) {
+    cacheWifiNetworkResults(scanState);
+    WiFi.scanDelete();
+  } else {
+    wifiScanResponse =
+        F("{\"scanning\":false,\"networks\":[],\"error\":\"Scan failed\"}");
+    Serial.println("WIFI_SCAN_FAILED complete");
+  }
 }
 
 bool loadCredentials() {
@@ -824,6 +959,8 @@ void beginCredentialAttempt() {
   drawCredentialTestScreen();
   Serial.println("PROVISIONING_TEST_BEGIN attempt=1");
 
+  wifiScanRunning = false;
+  WiFi.scanDelete();
   WiFi.disconnect(false, false);
   delay(100);
   WiFi.begin(pendingWifiSsid.c_str(), pendingWifiPassword.c_str());
@@ -835,16 +972,24 @@ void resumeSavedWifiRetries() {
     return;
   }
 
+  lastProvisioningWifiRetryAt = millis();
+  if (wifiScanRunning) {
+    Serial.println("PROVISIONING_SAVED_WIFI_RETRY deferred_for_scan");
+    return;
+  }
+
   WiFi.disconnect(false, false);
   delay(100);
   WiFi.begin(savedWifiSsid.c_str(), savedWifiPassword.c_str());
-  lastProvisioningWifiRetryAt = millis();
   Serial.println("PROVISIONING_SAVED_WIFI_RETRY");
 }
 
 void resumeDeparturesFromProvisioning() {
   dnsServer.stop();
   webServer.stop();
+  wifiScanRunning = false;
+  wifiScanResponse = "";
+  WiFi.scanDelete();
   WiFi.softAPdisconnect(false);
   WiFi.mode(WIFI_STA);
 
@@ -876,6 +1021,25 @@ void configureWebHandlers() {
     } else {
       sendSettingsPage();
     }
+  });
+
+  webServer.on("/networks", HTTP_GET, []() {
+    if (!provisioningMode) {
+      webServer.send(404, "application/json", "{\"error\":\"Not found\"}");
+      return;
+    }
+    if (webServer.arg("refresh") == "1") {
+      startWifiNetworkScan();
+    }
+    updateWifiNetworkScan();
+    if (wifiScanResponse.length() == 0 && !wifiScanRunning) {
+      startWifiNetworkScan();
+    }
+    webServer.sendHeader("Cache-Control", "no-store");
+    webServer.send(200, "application/json",
+                   wifiScanRunning
+                       ? "{\"scanning\":true,\"networks\":[]}"
+                       : wifiScanResponse);
   });
 
   webServer.on("/save", HTTP_POST, []() {
@@ -1029,6 +1193,7 @@ void startProvisioning() {
   configureWebHandlers();
   dnsServer.start(53, "*", WiFi.softAPIP());
   webServer.begin();
+  startWifiNetworkScan();
   drawSetupScreen();
   Serial.printf("PROVISIONING_AP_STARTED ssid=%s\n", setupApSsid.c_str());
   resumeSavedWifiRetries();
@@ -1037,6 +1202,7 @@ void startProvisioning() {
 void updateProvisioning() {
   dnsServer.processNextRequest();
   webServer.handleClient();
+  updateWifiNetworkScan();
 
   if (provisioningState == ProvisioningState::kTesting) {
     if (WiFi.status() == WL_CONNECTED) {
@@ -1080,7 +1246,8 @@ void updateProvisioning() {
       resumeDeparturesFromProvisioning();
       return;
     }
-    if (millis() - lastProvisioningWifiRetryAt >= kWifiRetryIntervalMs) {
+    if (!wifiScanRunning &&
+        millis() - lastProvisioningWifiRetryAt >= kWifiRetryIntervalMs) {
       WiFi.disconnect(false, false);
       delay(100);
       WiFi.begin(savedWifiSsid.c_str(), savedWifiPassword.c_str());
