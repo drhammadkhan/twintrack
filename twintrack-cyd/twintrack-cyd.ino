@@ -1501,6 +1501,7 @@ void setup() {
   pinMode(kBootButton, INPUT_PULLUP);
 
   tft.begin();
+  tft.invertDisplay(true);
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
 
