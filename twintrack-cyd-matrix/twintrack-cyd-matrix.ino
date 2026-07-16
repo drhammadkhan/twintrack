@@ -41,12 +41,15 @@ constexpr size_t kMaxServices = 4;
 // Screen geometry (landscape, rotation 1).
 constexpr int16_t kScreenWidth = 320;
 constexpr int16_t kScreenHeight = 240;
-constexpr int16_t kRow1Y = 4;
-constexpr int16_t kScrollY = 28;
-constexpr int16_t kScrollHeight = 20;
-constexpr int16_t kRow2Y = 56;
-constexpr int16_t kRowPitch = 24;
-constexpr int16_t kClockCentreY = 180;
+constexpr int16_t kHeaderBottom = 30;   // amber rule under the station title
+constexpr int16_t kRow1Y = 38;          // next departure (top of the board)
+constexpr int16_t kScrollY = 62;        // scrolling "Calling at:" line
+constexpr int16_t kScrollHeight = 18;
+constexpr int16_t kRule1Y = 84;         // rule between the next service and the rest
+constexpr int16_t kRow2Y = 92;          // 2nd/3rd/4th services stacked below
+constexpr int16_t kRowPitch = 26;
+constexpr int16_t kRule2Y = 170;        // rule above the clock
+constexpr int16_t kClockCentreY = 200;  // large 7-segment station clock
 constexpr int16_t kHintY = 230;
 
 // Typical raw XPT2046 range on this panel; coarse zone taps do not need
@@ -292,7 +295,14 @@ void drawClock(bool force = false) {
     return;
   }
   lastClockText = clockText;
-  drawMatrixText(clockText, 160, kClockCentreY, MC_DATUM, 4, amber());
+  // Font 7 is the seven-segment LCD face - an authentic station clock. Its
+  // digits are fixed width, so redrawing over an opaque background keeps the
+  // centred HH:MM:SS steady without ghosting.
+  tft.setTextFont(7);
+  tft.setTextSize(1);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(amber(), TFT_BLACK);
+  tft.drawString(clockText, 160, kClockCentreY);
 }
 
 void drawHint() {
@@ -306,18 +316,31 @@ void drawHint() {
   drawMatrixText(hint, 160, kHintY, TC_DATUM, 1, amberDim());
 }
 
+void drawHeader() {
+  const String origin =
+      routeDisplayName(kStations[stationIndex].code,
+                       kStations[stationIndex].label);
+  const String destination =
+      routeDisplayName(kDirections[directionIndex].code,
+                       kDirections[directionIndex].label);
+  drawMatrixText(fitMatrixText(origin, 176, 2), 6, 6, TL_DATUM, 2, amber());
+  drawMatrixText(fitMatrixText("to " + destination, 122, 2), 314, 6, TR_DATUM,
+                 2, amberDim());
+  tft.fillRect(0, kHeaderBottom - 3, kScreenWidth, 2, amber());
+}
+
 void drawServiceRow(size_t index, int16_t y) {
   const Departure &departure = departures[index];
   const String status = matrixStatus(departure);
   const int16_t statusWidth = matrixTextWidth(status, 2);
-  const int16_t destinationX = 116;
-  const int16_t destinationMax = 316 - statusWidth - 10 - destinationX;
+  const int16_t destinationX = 118;
+  const int16_t destinationMax = 314 - statusWidth - 8 - destinationX;
 
-  drawMatrixText(kOrdinals[index], 4, y, TL_DATUM, 2, amber());
-  drawMatrixText(departure.scheduled, 46, y, TL_DATUM, 2, amber());
+  drawMatrixText(kOrdinals[index], 6, y, TL_DATUM, 2, amberDim());
+  drawMatrixText(departure.scheduled, 52, y, TL_DATUM, 2, amber());
   drawMatrixText(fitMatrixText(departure.destination, destinationMax, 2),
                  destinationX, y, TL_DATUM, 2, amber());
-  drawMatrixText(status, 316, y, TR_DATUM, 2, amber());
+  drawMatrixText(status, 314, y, TR_DATUM, 2, amber());
 }
 
 void drawDepartures() {
@@ -325,19 +348,23 @@ void drawDepartures() {
   boardDrawn = true;
   lastClockText = "";
 
+  drawHeader();
+
   if (departureCount == 0) {
-    drawMatrixText(statusMessage, 160, 64, MC_DATUM, 2, amber());
+    drawMatrixText(statusMessage, 160, 110, MC_DATUM, 2, amber());
     setScrollText("");
   } else {
     drawServiceRow(0, kRow1Y);
-    for (size_t i = 1; i < departureCount; ++i) {
-      drawServiceRow(i, kRow2Y + static_cast<int16_t>(i - 1) * kRowPitch);
-    }
     if (departures[0].callingAt.length() > 0) {
       setScrollText(departures[0].callingAt);
     } else {
       setScrollText("Calling at: " + departures[0].destination + " only.");
     }
+    tft.fillRect(6, kRule1Y, kScreenWidth - 12, 1, amberDim());
+    for (size_t i = 1; i < departureCount; ++i) {
+      drawServiceRow(i, kRow2Y + static_cast<int16_t>(i - 1) * kRowPitch);
+    }
+    tft.fillRect(6, kRule2Y, kScreenWidth - 12, 1, amberDim());
   }
 
   drawClock(true);
@@ -1259,6 +1286,9 @@ void setup() {
   pinMode(kBootButton, INPUT_PULLUP);
 
   tft.begin();
+  // This CYD panel revision drives its colours inverted, so amber-on-black
+  // renders as blue-on-white without this. Flip it back to a true black board.
+  tft.invertDisplay(true);
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
 
