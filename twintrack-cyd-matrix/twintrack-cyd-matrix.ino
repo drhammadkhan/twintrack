@@ -379,7 +379,7 @@ void drawHeader() {
   tft.fillRect(0, kHeaderBottom - 3, kScreenWidth, 2, amber());
 }
 
-void drawServiceRow(size_t index, int16_t y) {
+void drawServiceRow(size_t index, int16_t y, bool allowScroll) {
   const Departure &departure = departures[index];
   const String status = matrixStatus(departure);
   const int16_t statusWidth = matrixTextWidth(status, 2);
@@ -389,10 +389,15 @@ void drawServiceRow(size_t index, int16_t y) {
   drawMatrixText(kOrdinals[index], 6, y, TL_DATUM, 2, amberDim());
   drawMatrixText(departure.scheduled, 52, y, TL_DATUM, 2, amber());
   drawMatrixText(status, 314, y, TR_DATUM, 2, amber());
-  // The destination sits in its own cell and tickers if it is too long to fit
-  // beside the status (e.g. "Chessington South") instead of being clipped.
-  addScroller(departure.destination, destinationX, y, destinationMax, 18, 2,
-              amber());
+  // Only the top (next) service tickers its destination; the stacked rows keep
+  // a static, truncated name so the board is not busy with four scrollers.
+  if (allowScroll) {
+    addScroller(departure.destination, destinationX, y, destinationMax, 18, 2,
+                amber());
+  } else {
+    drawMatrixText(fitMatrixText(departure.destination, destinationMax, 2),
+                   destinationX, y, TL_DATUM, 2, amber());
+  }
 }
 
 void drawDepartures() {
@@ -411,10 +416,10 @@ void drawDepartures() {
             ? departures[0].callingAt
             : "Calling at: " + departures[0].destination + " only.";
     addScroller(callingAt, 0, kScrollY, kScreenWidth, kScrollHeight, 2, amber());
-    drawServiceRow(0, kRow1Y);
+    drawServiceRow(0, kRow1Y, true);
     tft.fillRect(6, kRule1Y, kScreenWidth - 12, 1, amberDim());
     for (size_t i = 1; i < departureCount; ++i) {
-      drawServiceRow(i, kRow2Y + static_cast<int16_t>(i - 1) * kRowPitch);
+      drawServiceRow(i, kRow2Y + static_cast<int16_t>(i - 1) * kRowPitch, false);
     }
     tft.fillRect(6, kRule2Y, kScreenWidth - 12, 1, amberDim());
   }
