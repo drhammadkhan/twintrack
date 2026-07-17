@@ -37,6 +37,7 @@ constexpr uint32_t kFooterPageIntervalMs = 5000;
 constexpr uint32_t kScrollStepMs = 33;
 constexpr uint8_t kCredentialAttempts = 3;
 constexpr size_t kMaxServices = 4;
+constexpr uint32_t kFetchTaskStackSize = 16384;
 
 // Screen geometry (landscape, rotation 1).
 constexpr int16_t kScreenWidth = 320;
@@ -95,6 +96,40 @@ struct Departure {
   bool cancelled = false;
 };
 
+// Fixed-size snapshots passed by value across the FreeRTOS queue boundary, so
+// the blocking network fetch runs on a second core without touching the heap
+// Strings the UI loop draws from.
+struct DepartureSnapshot {
+  char scheduled[8];
+  char expected[24];
+  char destination[64];
+  char platform[16];
+  bool cancelled;
+};
+
+struct FetchRequest {
+  uint32_t selectionRevision;
+  uint8_t stationIndex;
+  uint8_t directionIndex;
+  char stationCode[4];
+  char directionCode[4];
+};
+
+struct FetchResult {
+  uint32_t selectionRevision;
+  uint8_t stationIndex;
+  uint8_t directionIndex;
+  bool success;
+  size_t departureCount;
+  char stationCode[4];
+  char directionCode[4];
+  char stationLabel[64];
+  char directionLabel[64];
+  char statusMessage[24];
+  char callingAt[640];
+  DepartureSnapshot departures[kMaxServices];
+};
+
 enum class ProvisioningState {
   kIdle,
   kTesting,
@@ -132,11 +167,14 @@ SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(kTouchCs, kTouchIrq);
 DNSServer dnsServer;
 WebServer webServer(80);
+QueueHandle_t fetchRequestQueue = nullptr;
+QueueHandle_t fetchResultQueue = nullptr;
 
 Departure departures[kMaxServices];
 size_t departureCount = 0;
 uint8_t stationIndex = 0;
 uint8_t directionIndex = 0;
+uint32_t selectionRevision = 0;
 uint32_t lastRefreshAt = 0;
 uint32_t lastWifiRetryAt = 0;
 uint32_t wifiDisconnectedAt = 0;
@@ -148,6 +186,8 @@ uint32_t restartAt = 0;
 uint8_t credentialAttempt = 0;
 uint8_t lastFooterPage = 255;
 bool refreshRequested = true;
+bool fetchInProgress = false;
+bool backgroundFetcherReady = false;
 bool provisioningMode = false;
 bool webHandlersConfigured = false;
 bool lanWebUiRunning = false;
@@ -173,6 +213,9 @@ ProvisioningState provisioningState = ProvisioningState::kIdle;
 
 void configureWebHandlers();
 void startLanWebUi();
+bool initialiseDepartureFetcher();
+bool queueDepartureFetch();
+void applyCompletedDepartureFetch();
 void startWifiNetworkScan();
 void updateWifiNetworkScan();
 
@@ -1078,6 +1121,7 @@ void configureWebHandlers() {
     stationIndex = 0;
     directionIndex = 0;
     departureCount = 0;
+    ++selectionRevision;
     refreshRequested = true;
     lastRefreshAt = 0;
     Serial.println("TRAIN_SETTINGS_SAVED");
@@ -1115,6 +1159,7 @@ void startProvisioning() {
     return;
   }
 
+  ++selectionRevision;
   provisioningMode = true;
   provisioningState = ProvisioningState::kIdle;
   pendingWifiSsid = "";
@@ -1237,20 +1282,29 @@ String buildCallingAt(JsonObject service) {
   return text;
 }
 
-bool fetchDepartures() {
+// Runs on the background fetch task (core 0). Performs the blocking HTTPS
+// request and JSON parse into a fixed-size result, so the UI loop on core 1
+// keeps the clock and scroller moving throughout.
+void performDepartureFetch(const FetchRequest &request, FetchResult &result) {
+  result.selectionRevision = request.selectionRevision;
+  result.stationIndex = request.stationIndex;
+  result.directionIndex = request.directionIndex;
+  strlcpy(result.stationCode, request.stationCode, sizeof(result.stationCode));
+  strlcpy(result.directionCode, request.directionCode,
+          sizeof(result.directionCode));
+  strlcpy(result.statusMessage, "UPDATE ERROR", sizeof(result.statusMessage));
+
   if (WiFi.status() != WL_CONNECTED) {
-    statusMessage = "NO WIFI";
+    strlcpy(result.statusMessage, "NO WIFI", sizeof(result.statusMessage));
     Serial.println("FETCH_SKIPPED no_wifi");
-    return false;
+    return;
   }
 
-  const Station &station = kStations[stationIndex];
-  const Direction &direction = kDirections[directionIndex];
-  const String url = String(kApiBase) + "/" + station.code + "/to/" +
-                     direction.code + "/4?expand=true";
+  const String url = String(kApiBase) + "/" + request.stationCode + "/to/" +
+                     request.directionCode + "/4?expand=true";
 
-  Serial.printf("FETCH_BEGIN station=%s direction=%s\n", station.code.c_str(),
-                direction.code.c_str());
+  Serial.printf("FETCH_BEGIN station=%s direction=%s background=1\n",
+                request.stationCode, request.directionCode);
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -1261,17 +1315,19 @@ bool fetchDepartures() {
   http.setUserAgent("TwinTrack/1.1");
 
   if (!http.begin(client, url)) {
-    statusMessage = "API SETUP ERR";
+    strlcpy(result.statusMessage, "API SETUP ERR",
+            sizeof(result.statusMessage));
     Serial.println("FETCH_FAILED setup");
-    return false;
+    return;
   }
 
   const int responseCode = http.GET();
   if (responseCode != HTTP_CODE_OK) {
-    statusMessage = "HTTP " + String(responseCode);
+    snprintf(result.statusMessage, sizeof(result.statusMessage), "HTTP %d",
+             responseCode);
     Serial.printf("FETCH_FAILED http=%d\n", responseCode);
     http.end();
-    return false;
+    return;
   }
 
   const String payload = http.getString();
@@ -1295,40 +1351,171 @@ bool fetchDepartures() {
       deserializeJson(document, payload, DeserializationOption::Filter(filter));
 
   if (error) {
-    statusMessage = "JSON ERROR";
+    strlcpy(result.statusMessage, "JSON ERROR", sizeof(result.statusMessage));
     Serial.printf("FETCH_FAILED json=%s\n", error.c_str());
-    return false;
+    return;
   }
 
-  departureCount = 0;
-  const String stationName = document["locationName"] | "";
-  if (stationName.length() > 0) {
-    kStations[stationIndex].label = stationName;
-  }
+  const char *stationName = document["locationName"] | "";
+  strlcpy(result.stationLabel, stationName, sizeof(result.stationLabel));
+
   const JsonArray services = document["trainServices"].as<JsonArray>();
   for (JsonObject service : services) {
-    if (departureCount >= kMaxServices) {
+    if (result.departureCount >= kMaxServices) {
       break;
     }
 
-    Departure &departure = departures[departureCount++];
-    departure.scheduled = service["std"] | "--:--";
-    departure.expected = service["etd"] | "Unknown";
-    departure.platform = service["platform"] | "";
+    DepartureSnapshot &departure = result.departures[result.departureCount++];
+    strlcpy(departure.scheduled, service["std"] | "--:--",
+            sizeof(departure.scheduled));
+    strlcpy(departure.expected, service["etd"] | "Unknown",
+            sizeof(departure.expected));
+    strlcpy(departure.platform, service["platform"] | "",
+            sizeof(departure.platform));
     departure.cancelled = service["isCancelled"] | false;
-    departure.destination =
-        service["destination"][0]["locationName"] | "Unknown";
-    departure.callingAt =
-        departureCount == 1 ? buildCallingAt(service) : "";
-    if (departureCount == 1 && departure.destination != "Unknown") {
-      kDirections[directionIndex].label = departure.destination;
+    strlcpy(departure.destination,
+            service["destination"][0]["locationName"] | "Unknown",
+            sizeof(departure.destination));
+    if (result.departureCount == 1) {
+      const String callingAt = buildCallingAt(service);
+      strlcpy(result.callingAt, callingAt.c_str(), sizeof(result.callingAt));
+      if (strcmp(departure.destination, "Unknown") != 0) {
+        strlcpy(result.directionLabel, departure.destination,
+                sizeof(result.directionLabel));
+      }
     }
   }
 
-  statusMessage = departureCount > 0 ? "LIVE" : "No services";
-  Serial.printf("FETCH_OK count=%u\n",
-                static_cast<unsigned int>(departureCount));
+  result.success = true;
+  strlcpy(result.statusMessage,
+          result.departureCount > 0 ? "LIVE" : "No services",
+          sizeof(result.statusMessage));
+  Serial.printf("FETCH_OK count=%u background=1\n",
+                static_cast<unsigned int>(result.departureCount));
+}
+
+void departureFetchTask(void *parameter) {
+  (void)parameter;
+  for (;;) {
+    FetchRequest request{};
+    if (xQueueReceive(fetchRequestQueue, &request, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+
+    FetchResult result{};
+    performDepartureFetch(request, result);
+    xQueueSend(fetchResultQueue, &result, portMAX_DELAY);
+  }
+}
+
+bool initialiseDepartureFetcher() {
+  fetchRequestQueue = xQueueCreate(1, sizeof(FetchRequest));
+  fetchResultQueue = xQueueCreate(1, sizeof(FetchResult));
+  if (fetchRequestQueue == nullptr || fetchResultQueue == nullptr) {
+    Serial.println("FETCH_TASK_FAILED queue");
+    if (fetchRequestQueue != nullptr) {
+      vQueueDelete(fetchRequestQueue);
+    }
+    if (fetchResultQueue != nullptr) {
+      vQueueDelete(fetchResultQueue);
+    }
+    fetchRequestQueue = nullptr;
+    fetchResultQueue = nullptr;
+    return false;
+  }
+
+  const BaseType_t created = xTaskCreatePinnedToCore(
+      departureFetchTask, "departure-fetch", kFetchTaskStackSize, nullptr, 1,
+      nullptr, 0);
+  if (created != pdPASS) {
+    Serial.println("FETCH_TASK_FAILED create");
+    vQueueDelete(fetchRequestQueue);
+    vQueueDelete(fetchResultQueue);
+    fetchRequestQueue = nullptr;
+    fetchResultQueue = nullptr;
+    return false;
+  }
+
+  Serial.println("FETCH_TASK_READY core=0");
   return true;
+}
+
+bool queueDepartureFetch() {
+  if (!backgroundFetcherReady || fetchInProgress ||
+      WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  FetchRequest request{};
+  request.selectionRevision = selectionRevision;
+  request.stationIndex = stationIndex;
+  request.directionIndex = directionIndex;
+  strlcpy(request.stationCode, kStations[stationIndex].code.c_str(),
+          sizeof(request.stationCode));
+  strlcpy(request.directionCode, kDirections[directionIndex].code.c_str(),
+          sizeof(request.directionCode));
+
+  if (xQueueSend(fetchRequestQueue, &request, 0) != pdTRUE) {
+    Serial.println("FETCH_QUEUE_FAILED");
+    return false;
+  }
+
+  fetchInProgress = true;
+  return true;
+}
+
+void applyCompletedDepartureFetch() {
+  if (!fetchInProgress || fetchResultQueue == nullptr) {
+    return;
+  }
+
+  FetchResult result{};
+  if (xQueueReceive(fetchResultQueue, &result, 0) != pdTRUE) {
+    return;
+  }
+  fetchInProgress = false;
+
+  // Drop a stale result if the user changed station/direction while the fetch
+  // was in flight, and re-request for the current selection.
+  const bool selectionStillMatches =
+      result.selectionRevision == selectionRevision &&
+      result.stationIndex == stationIndex &&
+      result.directionIndex == directionIndex &&
+      kStations[stationIndex].code == result.stationCode &&
+      kDirections[directionIndex].code == result.directionCode;
+  if (!selectionStillMatches || provisioningMode) {
+    Serial.println("FETCH_RESULT_DISCARDED selection_changed");
+    refreshRequested = true;
+    return;
+  }
+
+  statusMessage = result.statusMessage;
+  if (!result.success) {
+    // Keep the last complete board visible; only surface the error when there
+    // has never been a successful response.
+    if (departureCount == 0) {
+      drawDepartures();
+    }
+    return;
+  }
+
+  departureCount = result.departureCount;
+  for (size_t i = 0; i < departureCount; ++i) {
+    departures[i].scheduled = result.departures[i].scheduled;
+    departures[i].expected = result.departures[i].expected;
+    departures[i].destination = result.departures[i].destination;
+    departures[i].platform = result.departures[i].platform;
+    departures[i].cancelled = result.departures[i].cancelled;
+    departures[i].callingAt = (i == 0) ? String(result.callingAt) : String();
+  }
+  if (result.stationLabel[0] != '\0') {
+    kStations[stationIndex].label = result.stationLabel;
+  }
+  if (result.directionLabel[0] != '\0') {
+    kDirections[directionIndex].label = result.directionLabel;
+  }
+
+  drawDepartures();
 }
 
 void setup() {
@@ -1353,6 +1540,8 @@ void setup() {
   touch.begin(touchSpi);
   touch.setRotation(1);
 
+  backgroundFetcherReady = initialiseDepartureFetcher();
+
   drawMessage("TWINTRACK");
   generateSetupNetworkDetails();
   loadTrainSettings();
@@ -1376,6 +1565,8 @@ void loop() {
     return;
   }
 
+  applyCompletedDepartureFetch();
+
   if (lanWebUiRunning) {
     webServer.handleClient();
   }
@@ -1396,10 +1587,12 @@ void loop() {
   const TouchZone zone = pollTouchZone();
   if (zone == TouchZone::kStation) {
     stationIndex = (stationIndex + 1) % 2;
+    ++selectionRevision;
     refreshRequested = true;
     drawMessage(kStations[stationIndex].label);
   } else if (zone == TouchZone::kDirection) {
     directionIndex = (directionIndex + 1) % 2;
+    ++selectionRevision;
     refreshRequested = true;
     drawMessage(kDirections[directionIndex].label);
   } else if (zone == TouchZone::kRefresh) {
@@ -1423,11 +1616,12 @@ void loop() {
     wifiDisconnectedAt = 0;
   }
 
-  if (refreshRequested || millis() - lastRefreshAt >= kRefreshIntervalMs) {
-    refreshRequested = false;
-    lastRefreshAt = millis();
-    fetchDepartures();
-    drawDepartures();
+  if (WiFi.status() == WL_CONNECTED && !fetchInProgress &&
+      (refreshRequested || millis() - lastRefreshAt >= kRefreshIntervalMs)) {
+    if (queueDepartureFetch()) {
+      refreshRequested = false;
+      lastRefreshAt = millis();
+    }
   }
 
   delay(5);
