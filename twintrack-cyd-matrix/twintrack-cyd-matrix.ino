@@ -196,6 +196,7 @@ bool retrySavedWifiInProvisioning = false;
 bool statusLedOn = false;
 bool touchWasPressed = false;
 bool boardDrawn = false;
+bool boardChromeValid = false;
 String statusMessage = "STARTING";
 Scroller scrollers[kMaxScrollers];
 size_t scrollerCount = 0;
@@ -443,9 +444,14 @@ void drawServiceRow(size_t index, int16_t y, bool allowScroll) {
   }
 }
 
+// Full repaint: clears the screen and redraws the header, rules, every service
+// row, and the clock. Used for the first board and whenever the header or
+// structure changes. Steady-state refreshes go through updateDeparturesInPlace
+// instead, so the board is not blanked and repainted every 30 seconds.
 void drawDepartures() {
   tft.fillScreen(TFT_BLACK);
   boardDrawn = true;
+  boardChromeValid = true;
   lastClockText = "";
   resetScrollers();
 
@@ -471,12 +477,65 @@ void drawDepartures() {
   drawHint();
 }
 
+bool sameDeparture(const Departure &a, const Departure &b) {
+  return a.scheduled == b.scheduled && a.expected == b.expected &&
+         a.destination == b.destination && a.platform == b.platform &&
+         a.cancelled == b.cancelled && a.callingAt == b.callingAt;
+}
+
+void clearServiceRow(int16_t y) {
+  tft.fillRect(0, y, kScreenWidth, 18, TFT_BLACK);
+}
+
+// Repaint only the rows whose data actually changed, leaving the header, rules,
+// clock, and any still-crawling scrollers untouched. In the common case where a
+// 30-second refresh returns the same services, nothing is redrawn at all, so
+// the board never blanks.
+void updateDeparturesInPlace(const Departure *incoming, size_t incomingCount) {
+  boardDrawn = true;
+
+  if (!sameDeparture(departures[0], incoming[0])) {
+    // The calling-at line and the top destination ticker both belong to the
+    // next service, so rebuild the scroller set and repaint the top row.
+    departures[0] = incoming[0];
+    resetScrollers();
+    const String callingAt =
+        departures[0].callingAt.length() > 0
+            ? departures[0].callingAt
+            : "Calling at: " + departures[0].destination + " only.";
+    tft.fillRect(0, kScrollY, kScreenWidth, kScrollHeight, TFT_BLACK);
+    addScroller(callingAt, 0, kScrollY, kScreenWidth, kScrollHeight, 2, amber());
+    clearServiceRow(kRow1Y);
+    drawServiceRow(0, kRow1Y, true);
+  }
+
+  for (size_t i = 1; i < kMaxServices; ++i) {
+    const bool hadRow = i < departureCount;
+    const bool hasRow = i < incomingCount;
+    const int16_t y = kRow2Y + static_cast<int16_t>(i - 1) * kRowPitch;
+    if (hasRow) {
+      if (!hadRow || !sameDeparture(departures[i], incoming[i])) {
+        departures[i] = incoming[i];
+        clearServiceRow(y);
+        drawServiceRow(i, y, false);
+      } else {
+        departures[i] = incoming[i];
+      }
+    } else if (hadRow) {
+      clearServiceRow(y);
+    }
+  }
+
+  departureCount = incomingCount;
+}
+
 void drawMessage(const String &message, uint16_t colour = 0) {
   if (colour == 0) {
     colour = amber();
   }
   tft.fillScreen(TFT_BLACK);
   boardDrawn = false;
+  boardChromeValid = false;
   resetScrollers();
   drawMatrixText(fitMatrixText(message, 312, 2), 160, 110, MC_DATUM, 2,
                  colour);
@@ -486,6 +545,7 @@ void drawMessage(const String &message, uint16_t colour = 0) {
 void drawSetupScreen() {
   tft.fillScreen(TFT_BLACK);
   boardDrawn = false;
+  boardChromeValid = false;
   resetScrollers();
   drawMatrixText("WIFI SETUP", 160, 8, TC_DATUM, 2, amber());
 
@@ -505,6 +565,7 @@ void drawSetupScreen() {
 void drawCredentialTestScreen() {
   tft.fillScreen(TFT_BLACK);
   boardDrawn = false;
+  boardChromeValid = false;
   drawMatrixText("TESTING WIFI", 160, 100, MC_DATUM, 2, amber());
   drawMatrixText("KEEP SETUP OPEN", 160, 130, MC_DATUM, 1, amberDim());
 }
@@ -512,6 +573,7 @@ void drawCredentialTestScreen() {
 void drawCredentialSavedScreen() {
   tft.fillScreen(TFT_BLACK);
   boardDrawn = false;
+  boardChromeValid = false;
   drawMatrixText("WIFI SAVED", 160, 100, MC_DATUM, 2, amber());
   drawMatrixText("RESTARTING", 160, 130, MC_DATUM, 1, amberDim());
 }
@@ -1499,14 +1561,21 @@ void applyCompletedDepartureFetch() {
     return;
   }
 
-  departureCount = result.departureCount;
-  for (size_t i = 0; i < departureCount; ++i) {
-    departures[i].scheduled = result.departures[i].scheduled;
-    departures[i].expected = result.departures[i].expected;
-    departures[i].destination = result.departures[i].destination;
-    departures[i].platform = result.departures[i].platform;
-    departures[i].cancelled = result.departures[i].cancelled;
-    departures[i].callingAt = (i == 0) ? String(result.callingAt) : String();
+  // Build the incoming board into a temporary so we can diff it against what is
+  // currently displayed and repaint only the parts that changed.
+  static Departure incoming[kMaxServices];
+  const size_t incomingCount = result.departureCount;
+  for (size_t i = 0; i < kMaxServices; ++i) {
+    if (i < incomingCount) {
+      incoming[i].scheduled = result.departures[i].scheduled;
+      incoming[i].expected = result.departures[i].expected;
+      incoming[i].destination = result.departures[i].destination;
+      incoming[i].platform = result.departures[i].platform;
+      incoming[i].cancelled = result.departures[i].cancelled;
+      incoming[i].callingAt = (i == 0) ? String(result.callingAt) : String();
+    } else {
+      incoming[i] = Departure();
+    }
   }
   if (result.stationLabel[0] != '\0') {
     kStations[stationIndex].label = result.stationLabel;
@@ -1515,7 +1584,17 @@ void applyCompletedDepartureFetch() {
     kDirections[directionIndex].label = result.directionLabel;
   }
 
-  drawDepartures();
+  // A full repaint is only needed when the header/structure changes; otherwise
+  // update in place so the board is not blanked on every refresh.
+  if (!boardChromeValid || departureCount == 0 || incomingCount == 0) {
+    for (size_t i = 0; i < kMaxServices; ++i) {
+      departures[i] = incoming[i];
+    }
+    departureCount = incomingCount;
+    drawDepartures();
+  } else {
+    updateDeparturesInPlace(incoming, incomingCount);
+  }
 }
 
 void setup() {
