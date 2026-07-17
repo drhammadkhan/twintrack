@@ -109,6 +109,24 @@ enum class TouchZone {
   kRefresh,
 };
 
+// A horizontally scrolling text region. Text that fits its viewport is drawn
+// once and left static; text that overflows tickers across like a real platform
+// display. Used for the "Calling at:" line and any over-wide destination cell.
+struct Scroller {
+  String text;
+  int16_t x;
+  int16_t y;
+  int16_t w;
+  int16_t h;
+  uint8_t size;
+  uint16_t colour;
+  int32_t textWidth;
+  int32_t offset;
+  bool scroll;
+};
+
+constexpr size_t kMaxScrollers = 1 + kMaxServices;  // calling-at + destinations
+
 TFT_eSPI tft(kScreenHeight, kScreenWidth);
 SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(kTouchCs, kTouchIrq);
@@ -127,8 +145,6 @@ uint32_t lastScrollAt = 0;
 uint32_t credentialAttemptStartedAt = 0;
 uint32_t lastProvisioningWifiRetryAt = 0;
 uint32_t restartAt = 0;
-int32_t scrollOffset = 0;
-int32_t scrollTextWidth = 0;
 uint8_t credentialAttempt = 0;
 uint8_t lastFooterPage = 255;
 bool refreshRequested = true;
@@ -141,7 +157,8 @@ bool statusLedOn = false;
 bool touchWasPressed = false;
 bool boardDrawn = false;
 String statusMessage = "STARTING";
-String scrollText;
+Scroller scrollers[kMaxScrollers];
+size_t scrollerCount = 0;
 String lastClockText;
 String savedWifiSsid;
 String savedWifiPassword;
@@ -258,35 +275,57 @@ void configureClock() {
   Serial.println("CLOCK_CONFIGURED timezone=Europe/London");
 }
 
-void setScrollText(const String &text) {
-  if (text == scrollText) {
-    return;
+void resetScrollers() { scrollerCount = 0; }
+
+// Paint one scroller inside its own viewport. Static text is left-aligned;
+// overflowing text starts flush-left and tickers off to the left, re-entering
+// from the right for a continuous crawl.
+void drawScroller(Scroller &s, bool advance) {
+  tft.setViewport(s.x, s.y, s.w, s.h);
+  tft.fillRect(0, 0, s.w, s.h, TFT_BLACK);
+  if (s.scroll) {
+    if (advance) {
+      s.offset += 2;
+      if (s.offset > s.textWidth) {
+        s.offset = -s.w;
+      }
+    }
+    drawMatrixText(s.text, -s.offset, 0, TL_DATUM, s.size, s.colour);
+  } else {
+    drawMatrixText(s.text, 0, 0, TL_DATUM, s.size, s.colour);
   }
-  scrollText = text;
-  scrollTextWidth = matrixTextWidth(scrollText, 2);
-  scrollOffset = 0;
+  tft.resetViewport();
 }
 
-void updateScroller() {
-  if (scrollText.length() == 0 || millis() - lastScrollAt < kScrollStepMs) {
+void addScroller(const String &text, int16_t x, int16_t y, int16_t w,
+                 int16_t h, uint8_t size, uint16_t colour) {
+  if (scrollerCount >= kMaxScrollers) {
+    return;
+  }
+  Scroller &s = scrollers[scrollerCount++];
+  s.text = text;
+  s.x = x;
+  s.y = y;
+  s.w = w;
+  s.h = h;
+  s.size = size;
+  s.colour = colour;
+  s.textWidth = matrixTextWidth(text, size);
+  s.scroll = s.textWidth > w;
+  s.offset = 0;
+  drawScroller(s, false);
+}
+
+void updateScrollers() {
+  if (scrollerCount == 0 || millis() - lastScrollAt < kScrollStepMs) {
     return;
   }
   lastScrollAt = millis();
-
-  tft.setViewport(0, kScrollY, kScreenWidth, kScrollHeight);
-  tft.fillRect(0, 0, kScreenWidth, kScrollHeight, TFT_BLACK);
-
-  if (scrollTextWidth <= kScreenWidth) {
-    drawMatrixText(scrollText, 4, 2, TL_DATUM, 2, amber());
-  } else {
-    scrollOffset += 2;
-    if (scrollOffset > scrollTextWidth + kScreenWidth) {
-      scrollOffset = 0;
+  for (size_t i = 0; i < scrollerCount; ++i) {
+    if (scrollers[i].scroll) {
+      drawScroller(scrollers[i], true);
     }
-    drawMatrixText(scrollText, kScreenWidth - scrollOffset, 2, TL_DATUM, 2,
-                   amber());
   }
-  tft.resetViewport();
 }
 
 void drawClock(bool force = false) {
@@ -323,9 +362,20 @@ void drawHeader() {
   const String destination =
       routeDisplayName(kDirections[directionIndex].code,
                        kDirections[directionIndex].label);
-  drawMatrixText(fitMatrixText(origin, 176, 2), 6, 6, TL_DATUM, 2, amber());
-  drawMatrixText(fitMatrixText("to " + destination, 122, 2), 314, 6, TR_DATUM,
-                 2, amberDim());
+  const String originFitted = fitMatrixText(origin, 176, 2);
+  drawMatrixText(originFitted, 6, 6, TL_DATUM, 2, amber());
+
+  // Give the destination whatever room is left after the origin rather than a
+  // fixed cap, so names like "to Malden Manor" show in full. Only a genuinely
+  // over-wide destination falls back to a ticker.
+  const String destText = "to " + destination;
+  const int16_t destRegionX = 6 + matrixTextWidth(originFitted, 2) + 12;
+  const int16_t destBudget = 314 - destRegionX;
+  if (matrixTextWidth(destText, 2) <= destBudget) {
+    drawMatrixText(destText, 314, 6, TR_DATUM, 2, amberDim());
+  } else {
+    addScroller(destText, destRegionX, 6, destBudget, 18, 2, amberDim());
+  }
   tft.fillRect(0, kHeaderBottom - 3, kScreenWidth, 2, amber());
 }
 
@@ -338,28 +388,30 @@ void drawServiceRow(size_t index, int16_t y) {
 
   drawMatrixText(kOrdinals[index], 6, y, TL_DATUM, 2, amberDim());
   drawMatrixText(departure.scheduled, 52, y, TL_DATUM, 2, amber());
-  drawMatrixText(fitMatrixText(departure.destination, destinationMax, 2),
-                 destinationX, y, TL_DATUM, 2, amber());
   drawMatrixText(status, 314, y, TR_DATUM, 2, amber());
+  // The destination sits in its own cell and tickers if it is too long to fit
+  // beside the status (e.g. "Chessington South") instead of being clipped.
+  addScroller(departure.destination, destinationX, y, destinationMax, 18, 2,
+              amber());
 }
 
 void drawDepartures() {
   tft.fillScreen(TFT_BLACK);
   boardDrawn = true;
   lastClockText = "";
+  resetScrollers();
 
   drawHeader();
 
   if (departureCount == 0) {
     drawMatrixText(statusMessage, 160, 110, MC_DATUM, 2, amber());
-    setScrollText("");
   } else {
+    const String callingAt =
+        departures[0].callingAt.length() > 0
+            ? departures[0].callingAt
+            : "Calling at: " + departures[0].destination + " only.";
+    addScroller(callingAt, 0, kScrollY, kScreenWidth, kScrollHeight, 2, amber());
     drawServiceRow(0, kRow1Y);
-    if (departures[0].callingAt.length() > 0) {
-      setScrollText(departures[0].callingAt);
-    } else {
-      setScrollText("Calling at: " + departures[0].destination + " only.");
-    }
     tft.fillRect(6, kRule1Y, kScreenWidth - 12, 1, amberDim());
     for (size_t i = 1; i < departureCount; ++i) {
       drawServiceRow(i, kRow2Y + static_cast<int16_t>(i - 1) * kRowPitch);
@@ -377,7 +429,7 @@ void drawMessage(const String &message, uint16_t colour = 0) {
   }
   tft.fillScreen(TFT_BLACK);
   boardDrawn = false;
-  setScrollText("");
+  resetScrollers();
   drawMatrixText(fitMatrixText(message, 312, 2), 160, 110, MC_DATUM, 2,
                  colour);
   drawHint();
@@ -386,7 +438,7 @@ void drawMessage(const String &message, uint16_t colour = 0) {
 void drawSetupScreen() {
   tft.fillScreen(TFT_BLACK);
   boardDrawn = false;
-  setScrollText("");
+  resetScrollers();
   drawMatrixText("WIFI SETUP", 160, 8, TC_DATUM, 2, amber());
 
   drawMatrixText("JOIN", 160, 44, TC_DATUM, 1, amberDim());
@@ -1324,7 +1376,7 @@ void loop() {
   }
 
   if (boardDrawn) {
-    updateScroller();
+    updateScrollers();
     if (millis() - lastClockCheckAt >= 200) {
       lastClockCheckAt = millis();
       drawClock();
